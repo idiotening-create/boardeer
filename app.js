@@ -67,6 +67,36 @@ function extractYouTubeId(url){
   return m ? m[1] : null;
 }
 
+/* 사진을 화면에서 바로 올릴 수 있도록 브라우저에서 리사이즈+압축 후 base64로 변환.
+   Firestore 문서 1건당 최대 1MB라서, 별도 유료 스토리지 없이 쓰려면 이렇게 줄여서 저장해야 함. */
+function compressImageFile(file, maxDim=1600, maxBytes=700000){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        let { width, height } = img;
+        if(width > height && width > maxDim){ height = Math.round(height * (maxDim/width)); width = maxDim; }
+        else if(height >= width && height > maxDim){ width = Math.round(width * (maxDim/height)); height = maxDim; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        let quality = 0.85;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        while(dataUrl.length > maxBytes * 1.37 && quality > 0.25){
+          quality -= 0.1;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = ()=> reject(new Error('이미지를 불러오지 못했어요'));
+      img.src = reader.result;
+    };
+    reader.onerror = ()=> reject(new Error('파일을 읽지 못했어요'));
+    reader.readAsDataURL(file);
+  });
+}
+
 /* ---------------- 잠금 / 편집모드 ---------------- */
 
 function refreshLockUI(){
@@ -171,22 +201,44 @@ bannerSubEl.addEventListener('blur', ()=>{
 bannerEditBtn.addEventListener('click', async ()=>{
   const doc = await db.collection('meta').doc('banner').get();
   const cur = doc.exists ? doc.data() : {};
+  const curIsUrl = cur.image && !cur.image.startsWith('data:');
   openModal(`
     <h3>배너 편집</h3>
-    <label>배너 사진 URL</label>
-    <input type="url" id="bImg" placeholder="https://..." value="${cur.image||''}">
-    <p style="font-size:.75rem;color:var(--ink-soft)">imgbb.com, postimages.org 등에 올린 뒤 "직접 링크" 주소를 붙여넣어주세요.</p>
+    <label>배너 사진 올리기 (기기에서 바로 선택)</label>
+    <input type="file" id="bImgFile" accept="image/*">
+    <p class="hint">기기의 사진을 바로 선택하면 화면에 맞게 자동으로 압축해서 저장해요. 별도 사이트에 올릴 필요 없어요.</p>
+    <label>또는, 이미지 URL 직접 입력</label>
+    <input type="url" id="bImg" placeholder="https://..." value="${curIsUrl ? cur.image : ''}">
+    <p class="hint">imgbb.com, postimages.org 등에 올린 "직접 링크" 주소를 붙여넣어도 돼요. 위에서 사진을 선택하면 이 URL 입력은 무시돼요.</p>
     <label>부제목</label>
     <input type="text" id="bSub" value="${escapeHtml(cur.subtitle||'')}">
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
   `, m=>{
     m.querySelector('#c').onclick = closeModal;
     m.querySelector('#s').onclick = async ()=>{
+      const saveBtn = m.querySelector('#s');
+      const file = m.querySelector('#bImgFile').files[0];
+      let image = m.querySelector('#bImg').value.trim();
+      if(file){
+        saveBtn.disabled = true;
+        saveBtn.textContent = '사진 처리 중…';
+        try{
+          image = await compressImageFile(file);
+        }catch(err){
+          toast(err.message || '이미지를 처리하지 못했어요');
+          saveBtn.disabled = false;
+          saveBtn.textContent = '저장';
+          return;
+        }
+      } else if(!image){
+        image = cur.image || '';
+      }
       await db.collection('meta').doc('banner').set({
-        image: m.querySelector('#bImg').value.trim(),
+        image,
         subtitle: m.querySelector('#bSub').value.trim()
       }, {merge:true});
       closeModal();
+      toast('배너를 저장했어요');
     };
   });
 });
@@ -203,8 +255,31 @@ db.collection('meta').doc('banner').onSnapshot(doc=>{
 /* ---------------- 전체 스타일 (모든 위젯에 일괄 적용) ---------------- */
 
 const THEME_VARS = ['--rose','--sage','--gold','--paper','--card-bg','--card-bg2','--ink'];
-const FONT_DISPLAY_OPTIONS = ['Song Myung','Noto Serif KR','Nanum Myeongjo','Gowun Batang'];
-const FONT_BODY_OPTIONS = ['Noto Sans KR','Gowun Dodum'];
+const FONT_DISPLAY_OPTIONS = ['ZEN SERIF','Song Myung','Noto Serif KR','Nanum Myeongjo','Gowun Batang'];
+const FONT_BODY_OPTIONS = ['ZEN SERIF','Noto Sans KR','Gowun Dodum'];
+const CUSTOM_FONT_MAX_BYTES = 500000; // 폰트 파일 업로드(base64 저장) 용량 제한. 넘으면 fonts 폴더+파일명 방식을 안내함
+
+/* 업로드한 폰트 파일(base64) 또는 fonts 폴더의 파일명으로 @font-face를 동적으로 주입 */
+function injectCustomFontFace(srcDecl){
+  let styleTag = document.getElementById('customFontFace');
+  if(!styleTag){
+    styleTag = document.createElement('style');
+    styleTag.id = 'customFontFace';
+    document.head.appendChild(styleTag);
+  }
+  styleTag.textContent = srcDecl
+    ? `@font-face{ font-family:'CustomUserFont'; src:${srcDecl}; font-weight:400; font-style:normal; font-display:swap; }`
+    : '';
+}
+
+function fileToBase64(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = ()=> reject(new Error('파일을 읽지 못했어요'));
+    reader.readAsDataURL(file);
+  });
+}
 
 function applyTheme(theme){
   if(!theme) return;
@@ -212,8 +287,21 @@ function applyTheme(theme){
     const key = v.replace('--','');
     if(theme[key]) document.documentElement.style.setProperty(v, theme[key]);
   });
-  if(theme.fontDisplay) document.documentElement.style.setProperty('--font-display', `'${theme.fontDisplay}', 'Noto Serif KR', serif`);
-  if(theme.fontBody) document.documentElement.style.setProperty('--font-body', `'${theme.fontBody}', sans-serif`);
+
+  // 커스텀 폰트(업로드했거나 fonts 폴더에 직접 올린 파일)가 있으면 제목/본문 폰트를 모두 그걸로 통일
+  if(theme.customFontData){
+    injectCustomFontFace(`url(${theme.customFontData}) format('truetype')`);
+    document.documentElement.style.setProperty('--font-display', `'CustomUserFont', 'ZEN SERIF', serif`);
+    document.documentElement.style.setProperty('--font-body', `'CustomUserFont', 'ZEN SERIF', sans-serif`);
+  } else if(theme.customFontFile){
+    injectCustomFontFace(`url('./fonts/${theme.customFontFile}') format('truetype')`);
+    document.documentElement.style.setProperty('--font-display', `'CustomUserFont', 'ZEN SERIF', serif`);
+    document.documentElement.style.setProperty('--font-body', `'CustomUserFont', 'ZEN SERIF', sans-serif`);
+  } else {
+    injectCustomFontFace(null);
+    if(theme.fontDisplay) document.documentElement.style.setProperty('--font-display', `'${theme.fontDisplay}', 'Noto Serif KR', serif`);
+    if(theme.fontBody) document.documentElement.style.setProperty('--font-body', `'${theme.fontBody}', sans-serif`);
+  }
 }
 
 db.collection('meta').doc('theme').onSnapshot(doc=>{
@@ -225,6 +313,8 @@ globalStyleBtn.addEventListener('click', async ()=>{
   const cs = getComputedStyle(document.documentElement);
   const cur = {};
   THEME_VARS.forEach(v=> cur[v.replace('--','')] = cs.getPropertyValue(v).trim());
+  const themeDoc = await db.collection('meta').doc('theme').get();
+  const saved = themeDoc.exists ? themeDoc.data() : {};
   openModal(`
     <h3>전체 스타일</h3>
     <p style="font-size:.78rem;color:var(--ink-soft)">여기서 바꾸면 모든 위젯에 한 번에 적용돼요. 위젯별로 따로 지정해둔 색은 아래에서 초기화할 수 있어요.</p>
@@ -241,16 +331,33 @@ globalStyleBtn.addEventListener('click', async ()=>{
     <label>글자색</label>
     <div class="color-row"><input type="color" id="tInk" value="${cur.ink}"></div>
     <label>제목 폰트</label>
-    <select id="tFontDisplay">${FONT_DISPLAY_OPTIONS.map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
+    <select id="tFontDisplay">${FONT_DISPLAY_OPTIONS.map(f=>`<option value="${f}" ${saved.fontDisplay===f?'selected':''}>${f}</option>`).join('')}</select>
     <label>본문 폰트</label>
-    <select id="tFontBody">${FONT_BODY_OPTIONS.map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
+    <select id="tFontBody">${FONT_BODY_OPTIONS.map(f=>`<option value="${f}" ${saved.fontBody===f?'selected':''}>${f}</option>`).join('')}</select>
+
+    <label style="margin-top:16px;">커스텀 폰트 파일로 전체 글자체 통일 (선택)</label>
+    <input type="file" id="tFontUpload" accept=".ttf,.otf,font/ttf,font/otf">
+    <p class="hint">폰트 파일을 올리면 위에서 고른 제목/본문 폰트 대신, 사이트 전체 글자체가 이 폰트 하나로 통일돼요. 500KB 이하 파일만 여기서 바로 올릴 수 있어요.</p>
+    <label>또는, GitHub의 fonts 폴더에 직접 올린 폰트 파일명</label>
+    <input type="text" id="tFontFileName" placeholder="예: ZenSerif.ttf" value="${escapeHtml(saved.customFontFile||'')}">
+    <p class="hint">500KB보다 큰 폰트는 저장소의 fonts 폴더에 파일을 올린 뒤, 정확한 파일 이름만 여기에 입력해주세요.</p>
+    <div style="margin-top:6px;">
+      <button class="btn small ghost" id="tFontClear" type="button">커스텀 폰트 해제 (기본 ZEN SERIF로)</button>
+    </div>
+
     <label style="display:flex;align-items:center;gap:8px;margin-top:14px;">
       <input type="checkbox" id="tReset" style="width:auto;"> 위젯별로 따로 지정한 색상 전부 초기화
     </label>
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">전체 적용</button></div>
   `, m=>{
     m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#tFontClear').onclick = async ()=>{
+      await db.collection('meta').doc('theme').set({ customFontData:'', customFontFile:'' }, {merge:true});
+      closeModal();
+      toast('커스텀 폰트를 해제했어요');
+    };
     m.querySelector('#s').onclick = async ()=>{
+      const saveBtn = m.querySelector('#s');
       const theme = {
         rose: m.querySelector('#tRose').value,
         sage: m.querySelector('#tSage').value,
@@ -261,6 +368,28 @@ globalStyleBtn.addEventListener('click', async ()=>{
         fontDisplay: m.querySelector('#tFontDisplay').value,
         fontBody: m.querySelector('#tFontBody').value
       };
+      const fontFile = m.querySelector('#tFontUpload').files[0];
+      const fontFileName = m.querySelector('#tFontFileName').value.trim();
+      if(fontFile){
+        if(fontFile.size > CUSTOM_FONT_MAX_BYTES){
+          toast('폰트 파일이 너무 커요(500KB 이하 권장). 대신 fonts 폴더에 올리고 파일명을 입력해주세요.');
+          return;
+        }
+        saveBtn.disabled = true;
+        saveBtn.textContent = '폰트 처리 중…';
+        try{
+          theme.customFontData = await fileToBase64(fontFile);
+          theme.customFontFile = '';
+        }catch(err){
+          toast('폰트 파일을 읽지 못했어요');
+          saveBtn.disabled = false;
+          saveBtn.textContent = '전체 적용';
+          return;
+        }
+      } else if(fontFileName){
+        theme.customFontFile = fontFileName;
+        theme.customFontData = '';
+      }
       await db.collection('meta').doc('theme').set(theme, {merge:true});
       if(m.querySelector('#tReset').checked){
         const batch = db.batch();
