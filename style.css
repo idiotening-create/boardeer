@@ -28,7 +28,7 @@
   /* ---- 체리 팔레트 (라이트 & 글래스 버전) ---- */
   --paper: #EFE9EC;        /* Alabaster Grey 기반의 밝은 배경 */
   --paper-deep: #E2DDE3;   /* Alabaster Grey 원색 — 섹션 depth용 */
-  --dot: rgba(15,4,6,0.09);   /* Coffee Bean 톤 방안지 도트 */
+  --dot: rgba(15,4,6,0.16);   /* Coffee Bean 톤 방안지 도트 — 또렷하게 보이도록 진하게 */
   --ink: #2B1116;          /* Coffee Bean을 살짝 누그러뜨린 진한 잉크색(가독성 확보) */
   --ink-soft: #746F79;     /* Rosy Granite를 살짝 다운시킨 보조 글자색 */
   --rose: #651926;         /* Night Bordeaux (메인 포인트) */
@@ -84,7 +84,7 @@ body::before{
 .site-banner{
   position: relative;
   width: 100%;
-  height: 240px;
+  height: 380px;
   background-color: var(--paper-deep);
   background-size: cover;
   background-position: center;
@@ -210,12 +210,17 @@ body::before{
 .widget:active{ filter: brightness(0.96); }
 .widget.pressed{ filter: brightness(0.96); }
 
-/* 위젯 배경 사진 (선택) */
+/* 위젯 배경 사진 (선택) — 모든 위젯 타입에 공통 적용, 파일 업로드/URL 둘 다 가능 */
 .widget.has-bg .widget-bg{
   position:absolute; inset:0;
   background-size: cover; background-position:center;
-  opacity: .22;
+  opacity: .34;
   z-index:0;
+}
+.widget.has-bg .widget-bg::after{
+  content:"";
+  position:absolute; inset:0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.55) 100%);
 }
 .widget.has-bg .widget-body,
 .widget.has-bg .widget-header{ position:relative; z-index:1; }
@@ -329,19 +334,29 @@ body::before{
   font-size:.85rem;
 }
 .player-track.active{ background: rgba(101,25,38,0.14); font-weight:600; color: var(--rose); }
-.player-controls{ display:flex; align-items:center; gap:10px; justify-content:center; padding: 6px 0; }
+.player-panel{ display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+.player-now{ text-align:center; font-size:.8rem; color:var(--ink-soft); }
+/* 브라우저 기본 오디오바 대신, 팔레트 컬러(Night Bordeaux)로 직접 그린 탐색바 */
+.player-seek{
+  -webkit-appearance:none; appearance:none;
+  width:100%; height:4px; border-radius:4px;
+  background: var(--card-border);
+  outline:none; cursor:pointer; accent-color: var(--rose);
+}
+.player-seek::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  width:13px; height:13px; border-radius:50%;
+  background: var(--rose); cursor:pointer; border:2px solid #fff;
+  box-shadow: 0 1px 3px rgba(70,40,49,0.4);
+}
+.player-seek::-moz-range-thumb{
+  width:13px; height:13px; border-radius:50%;
+  background: var(--rose); cursor:pointer; border:2px solid #fff;
+}
+.player-controls{ display:flex; align-items:center; gap:10px; justify-content:center; padding: 2px 0; }
 .player-controls button{
   border:none; background:var(--rose); color:#fff; width:34px; height:34px; border-radius:50%;
   cursor:pointer; font-size:.9rem;
-}
-.player-now{ text-align:center; font-size:.8rem; color:var(--ink-soft); }
-/* 브라우저 기본 오디오 컨트롤(재생버튼/진행바/볼륨) 색상을 팔레트 톤(Night Bordeaux)으로 통일 */
-audio{
-  width:100%;
-  border-radius: 20px;
-  background: var(--card-bg2);
-  accent-color: var(--rose);
-  color-scheme: light;
 }
 .yt-frame iframe{ width:100%; border:0; border-radius:14px; display:block; }
 
