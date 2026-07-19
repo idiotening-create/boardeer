@@ -439,7 +439,7 @@ const MASONRY_GAP = 20;  // CSS gap 값과 일치해야 함
 
 function applyMasonry(){
   document.querySelectorAll('.widget').forEach(el=>{
-    const h = el.offsetHeight;
+    const h = el.scrollHeight;
     const span = Math.ceil((h + MASONRY_GAP) / (MASONRY_ROW + MASONRY_GAP));
     el.style.gridRowEnd = `span ${span}`;
   });
