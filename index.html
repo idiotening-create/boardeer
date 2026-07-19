@@ -8,10 +8,18 @@
 </head>
 <body>
 
+  <!-- 배너: 위젯이 아니라 항상 최상단에 고정되는 요소예요 -->
+  <div class="site-banner" id="siteBanner">
+    <div class="site-banner-scrim"></div>
+    <div class="site-banner-sub" id="bannerSub" contenteditable="false" data-placeholder="배너 부제목을 적어주세요"></div>
+    <button class="btn small banner-edit-btn" id="bannerEditBtn" style="display:none;">배너 사진/문구 편집</button>
+  </div>
+
   <div class="site-topbar">
     <div class="site-name" id="siteName" contenteditable="false">우리의 갠홈</div>
     <div class="topbar-actions">
       <span class="lock-badge" id="lockBadge">🔒 보기 전용</span>
+      <button class="btn small" id="globalStyleBtn">🎨 전체 스타일</button>
       <button class="btn small" id="lockBtn">잠금 해제</button>
     </div>
   </div>
@@ -22,7 +30,6 @@
 
   <div class="add-widget-bar" id="addWidgetBar" style="display:none;">
     <span style="align-self:center;font-size:.8rem;color:var(--ink-soft);">위젯 추가</span>
-    <button class="btn small" data-add="banner">배너</button>
     <button class="btn small" data-add="dday">디데이</button>
     <button class="btn small" data-add="calendar">캘린더</button>
     <button class="btn small" data-add="gallery">갤러리</button>
@@ -30,7 +37,6 @@
     <button class="btn small" data-add="backup">백업 카드함</button>
     <button class="btn small" data-add="music">음악 플레이어</button>
     <button class="btn small" data-add="story">썰</button>
-    <button class="btn small" data-add="commission">커미션</button>
   </div>
 
   <div id="modalRoot"></div>
