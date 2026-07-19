@@ -28,7 +28,7 @@
   /* ---- 체리 팔레트 (라이트 & 글래스 버전) ---- */
   --paper: #EFE9EC;        /* Alabaster Grey 기반의 밝은 배경 */
   --paper-deep: #E2DDE3;   /* Alabaster Grey 원색 — 섹션 depth용 */
-  --dot: rgba(101,25,38,0.05);   /* 아주 옅은 Night Bordeaux 톤 망점 */
+  --dot: rgba(15,4,6,0.09);   /* Coffee Bean 톤 방안지 도트 */
   --ink: #2B1116;          /* Coffee Bean을 살짝 누그러뜨린 진한 잉크색(가독성 확보) */
   --ink-soft: #746F79;     /* Rosy Granite를 살짝 다운시킨 보조 글자색 */
   --rose: #651926;         /* Night Bordeaux (메인 포인트) */
@@ -48,7 +48,7 @@
   --font-body: 'ZEN SERIF', 'Noto Sans KR', sans-serif;
   --font-mono: 'ZEN SERIF', 'Noto Serif KR', monospace;
 
-  --radius: 4px;
+  --radius: 20px;
 }
 
 *{ box-sizing: border-box; }
@@ -63,9 +63,9 @@ body{
   background-color: var(--paper);
   /* 한지 위에 옅게 스민 망점 텍스처 + 은은한 대각선 그라데이션으로 깊이감만 살짝 */
   background-image:
-    radial-gradient(var(--dot) 1.1px, transparent 1.1px),
+    radial-gradient(var(--dot) 1.4px, transparent 1.4px),
     linear-gradient(160deg, #F6F2F4 0%, #EFE7EA 45%, #E7DEE2 100%);
-  background-size: 22px 22px, 100% 100%;
+  background-size: 24px 24px, 100% 100%;
   background-attachment: fixed, fixed;
   min-height: 100vh;
   padding-bottom: 80px;
@@ -138,7 +138,7 @@ body::before{
   -webkit-backdrop-filter: blur(8px);
   color: var(--ink);
   padding: 7px 14px;
-  border-radius: 2px;
+  border-radius: 10px;
   cursor: pointer;
   font-size: .85rem;
   transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
@@ -155,7 +155,7 @@ body::before{
 .lock-badge{
   font-size: .75rem;
   padding: 4px 10px;
-  border-radius: 2px;
+  border-radius: 8px;
   display:flex; align-items:center; gap:6px;
   border: 1px solid var(--card-border);
   background: rgba(255,255,255,0.5);
@@ -220,20 +220,7 @@ body::before{
 .widget.has-bg .widget-body,
 .widget.has-bg .widget-header{ position:relative; z-index:1; }
 
-/* 낙관(落款) 인장 — 동양 서화의 도장처럼 카드 우하단에 찍힌 작은 인장 */
-.widget::after{
-  content:"";
-  position:absolute; bottom:12px; right:12px;
-  width:15px; height:15px;
-  border: 1.5px solid var(--rose);
-  border-radius: 2px;
-  background: rgba(101,25,38,0.12);
-  opacity:.7;
-  z-index:3;
-  pointer-events:none;
-  transition: opacity .18s ease, transform .18s ease;
-}
-.widget:hover::after{ opacity:1; transform: scale(1.12); }
+/* 낙관(落款) 인장 요소 제거됨 — 위젯 카드 우하단 도장 표시 삭제 */
 
 .widget-header{
   display:flex; align-items:center; justify-content:space-between;
@@ -248,7 +235,7 @@ body::before{
   font-weight: 400;
   letter-spacing: .02em;
   outline: none;
-  border-radius: 2px;
+  border-radius: 6px;
   padding: 2px 4px;
   color: var(--ink);
 }
@@ -292,7 +279,7 @@ body::before{
 .cal-dow{ text-align:center; color:var(--ink-soft); padding-bottom:4px; }
 .cal-day{
   aspect-ratio: 1/1; display:flex; align-items:center; justify-content:center;
-  border-radius: 2px; cursor:pointer; position:relative;
+  border-radius: 8px; cursor:pointer; position:relative;
   border: 1px solid transparent;
 }
 .cal-day.today{ border-color: var(--rose); font-weight:700; color: var(--rose); }
@@ -312,7 +299,7 @@ body::before{
   gap: 6px;
 }
 .gallery-grid .g-item{
-  position:relative; border-radius:3px; overflow:hidden; cursor:pointer;
+  position:relative; border-radius:12px; overflow:hidden; cursor:pointer;
   border: 1px solid var(--card-border);
 }
 .gallery-grid .g-item img{
@@ -325,33 +312,20 @@ body::before{
 .gallery-grid .g-item:nth-child(6n+4){ grid-row: span 2; }
 .gallery-grid .g-item:nth-child(6n+5){ grid-column: span 2; }
 .gallery-add{
-  border-radius:3px; border:1px dashed var(--card-border);
+  border-radius:12px; border:1px dashed var(--card-border);
   display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--ink-soft);
   grid-column: span 1; grid-row: span 1;
   background: rgba(255,255,255,0.3);
 }
 
 /* ---------- 외부 링크 임베드 ---------- */
-.embed-frame-wrap{ border-radius:2px; overflow:hidden; border:1px solid var(--card-border); background: var(--card-bg2); }
+.embed-frame-wrap{ border-radius:14px; overflow:hidden; border:1px solid var(--card-border); background: var(--card-bg2); }
 .embed-frame-wrap iframe{ width:100%; height: 280px; border:0; display:block; }
 .embed-fallback{ padding: 14px; font-size:.82rem; color: var(--ink-soft); text-align:center; }
 
-/* ---------- 백업 탭 (커스텀 카드 컨테이너) ---------- */
-.backup-cards{ display:flex; flex-direction:column; gap:8px; }
-.backup-card{
-  display:flex; align-items:center; gap:10px;
-  border: 1px solid var(--card-border); border-radius: 2px; padding: 8px 10px;
-  background: var(--card-bg2);
-}
-.backup-card .bc-icon{ font-size:1.2rem; }
-.backup-card .bc-main{ flex:1; min-width:0; }
-.backup-card .bc-title{ font-weight:600; font-size:.88rem; }
-.backup-card .bc-desc{ font-size:.75rem; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.backup-card a.bc-link{ font-size:.78rem; color: var(--rose); text-decoration:none; }
-
 /* ---------- 음악 플레이어 ---------- */
 .player-track{
-  display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:2px; cursor:pointer;
+  display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px; cursor:pointer;
   font-size:.85rem;
 }
 .player-track.active{ background: rgba(101,25,38,0.14); font-weight:600; color: var(--rose); }
@@ -361,21 +335,15 @@ body::before{
   cursor:pointer; font-size:.9rem;
 }
 .player-now{ text-align:center; font-size:.8rem; color:var(--ink-soft); }
-/* 밝은 톤에 자연스럽게 어울리도록 기본 오디오 컨트롤은 그대로 두고, 배경/모서리만 톤 맞춤 */
+/* 브라우저 기본 오디오 컨트롤(재생버튼/진행바/볼륨) 색상을 팔레트 톤(Night Bordeaux)으로 통일 */
 audio{
   width:100%;
   border-radius: 20px;
   background: var(--card-bg2);
+  accent-color: var(--rose);
+  color-scheme: light;
 }
-.yt-frame iframe{ width:100%; border:0; border-radius:4px; display:block; }
-
-/* ---------- 썰 ---------- */
-.story-entry{
-  border: 1px solid var(--card-border); border-radius:2px; padding:10px; background: var(--card-bg2);
-}
-.story-entry h4{ margin:0 0 4px 0; font-family: var(--font-display); font-size:.95rem; color: var(--rose); }
-.story-entry .meta{ font-size:.72rem; color:var(--ink-soft); margin-bottom:4px; }
-.story-entry .content{ font-size:.85rem; line-height:1.5; white-space:pre-wrap; }
+.yt-frame iframe{ width:100%; border:0; border-radius:14px; display:block; }
 
 /* ---------- 위젯 추가 바 ---------- */
 .add-widget-bar{
@@ -397,7 +365,7 @@ audio{
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--card-border);
-  border-radius: 3px;
+  border-radius: 20px;
   padding: 22px;
   width: min(420px, 90vw);
   max-height: 85vh; overflow:auto;
@@ -411,14 +379,14 @@ audio{
 .modal input[type=text], .modal input[type=password], .modal input[type=date],
 .modal input[type=url], .modal input[type=number], .modal textarea, .modal select,
 .modal input[type=file]{
-  width:100%; padding:8px 10px; border-radius:2px; border:1px solid var(--card-border);
+  width:100%; padding:8px 10px; border-radius:10px; border:1px solid var(--card-border);
   font-family: var(--font-body); font-size:.85rem; background: rgba(255,255,255,0.6); color: var(--ink);
 }
 .modal textarea{ min-height:90px; resize:vertical; }
 .modal .row{ display:flex; gap:8px; }
 .modal .row > *{ flex:1; }
 .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
-.modal input[type=color]{ width:44px; height:32px; padding:0; border:1px solid var(--card-border); border-radius:2px; }
+.modal input[type=color]{ width:44px; height:32px; padding:0; border:1px solid var(--card-border); border-radius:8px; }
 .modal .hint{ font-size:.75rem; color:var(--ink-soft); margin: 4px 0 0; }
 
 .color-row{ display:flex; align-items:center; gap:8px; }
@@ -428,7 +396,7 @@ audio{
 
 .toast{
   position: fixed; bottom: 20px; left:50%; transform: translateX(-50%);
-  background: rgba(255,255,255,0.85); color: var(--ink); border:1px solid var(--card-border); padding: 10px 18px; border-radius: 2px;
+  background: rgba(255,255,255,0.85); color: var(--ink); border:1px solid var(--card-border); padding: 10px 18px; border-radius: 14px;
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   font-size:.82rem; z-index: 300; animation: fadeIn .15s ease;

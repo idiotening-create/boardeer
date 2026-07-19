@@ -407,7 +407,7 @@ globalStyleBtn.addEventListener('click', async ()=>{
 /* ---------------- Firestore 동기화 ---------------- */
 
 db.collection('widgets').orderBy('order').onSnapshot(snap=>{
-  widgets = snap.docs.map(d=> ({ id: d.id, ...d.data() })).filter(w=> w.type !== 'banner' && w.type !== 'commission');
+  widgets = snap.docs.map(d=> ({ id: d.id, ...d.data() })).filter(w=> w.type !== 'banner' && w.type !== 'commission' && w.type !== 'backup' && w.type !== 'story');
   renderAll();
 }, err=>{
   console.error(err);
@@ -416,13 +416,11 @@ db.collection('widgets').orderBy('order').onSnapshot(snap=>{
 
 async function addWidget(type){
   const defaults = {
-    dday:       { title:'디데이', span:4, data:{ items:[] } },
-    calendar:   { title:'캘린더', span:8, data:{ events:{} } },
-    gallery:    { title:'갤러리', span:6, data:{ images:[] } },
-    embed:      { title:'외부 링크', span:6, data:{ url:'' } },
-    backup:     { title:'외부자료 백업', span:6, data:{ cards:[] } },
-    music:      { title:'음악 플레이어', span:4, data:{ tracks:[] } },
-    story:      { title:'썰', span:6, data:{ entries:[] } },
+    dday:       { title:'D-Day', span:4, data:{ items:[] } },
+    calendar:   { title:'Calendar', span:8, data:{ events:{} } },
+    gallery:    { title:'Gallery', span:6, data:{ images:[] } },
+    embed:      { title:'Embed', span:6, data:{ url:'' } },
+    music:      { title:'Music', span:4, data:{ tracks:[] } },
   };
   const base = defaults[type];
   if(!base) return;
@@ -590,26 +588,6 @@ function render_embed(w){
   `;
 }
 
-function render_backup(w){
-  const cards = w.data.cards || [];
-  return `
-    <div class="backup-cards">
-      ${cards.map((c,i)=> `
-        <div class="backup-card">
-          <div class="bc-icon">${escapeHtml(c.icon||'📎')}</div>
-          <div class="bc-main">
-            <div class="bc-title">${escapeHtml(c.title)}</div>
-            <div class="bc-desc">${escapeHtml(c.desc||'')}</div>
-          </div>
-          ${c.link ? `<a class="bc-link" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">열기 ↗</a>` : ''}
-          ${editMode ? `<span class="icon-btn" data-bu-del="${w.id}:${i}" style="width:22px;height:22px;">✕</span>` : ''}
-        </div>
-      `).join('') || `<div class="empty-hint">등록된 자료가 없어요</div>`}
-    </div>
-    ${editMode ? `<button class="btn small" data-bu-add="${w.id}" style="margin-top:4px;">+ 카드 추가</button>` : ''}
-  `;
-}
-
 function render_music(w){
   const tracks = w.data.tracks || [];
   return `
@@ -627,27 +605,10 @@ function render_music(w){
   `;
 }
 
-function render_story(w){
-  const entries = (w.data.entries || []).slice().sort((a,b)=> (b.date||'').localeCompare(a.date||''));
-  return `
-    ${editMode ? `<button class="btn small" data-story-add="${w.id}">+ 새 글</button>` : ''}
-    ${entries.map((e)=> {
-      const idx = w.data.entries.indexOf(e);
-      return `
-      <div class="story-entry">
-        <h4>${escapeHtml(e.title)}</h4>
-        <div class="meta">${escapeHtml(e.date||'')}</div>
-        <div class="content">${escapeHtml(e.content)}</div>
-        ${editMode ? `<div style="text-align:right;margin-top:6px;"><span class="icon-btn" data-story-del="${w.id}:${idx}" style="width:22px;height:22px;">✕</span></div>` : ''}
-      </div>`;
-    }).join('') || `<div class="empty-hint">아직 작성된 썰이 없어요</div>`}
-  `;
-}
-
 const renderers = {
   dday: render_dday, calendar: render_calendar,
-  gallery: render_gallery, embed: render_embed, backup: render_backup,
-  music: render_music, story: render_story
+  gallery: render_gallery, embed: render_embed,
+  music: render_music
 };
 
 /* ---------------- 전체 렌더 + 이벤트 위임 ---------------- */
@@ -695,7 +656,7 @@ function bindEvents(){
   });
 
   bindDday(); bindCalendar(); bindGallery(); bindEmbed();
-  bindBackup(); bindMusic(); bindStory();
+  bindMusic();
 }
 
 function widgetById(id){ return widgets.find(w=>w.id===id); }
@@ -843,43 +804,6 @@ function bindEmbed(){
   }));
 }
 
-/* ----- 백업 카드함 ----- */
-function bindBackup(){
-  document.querySelectorAll('[data-bu-add]').forEach(el=> el.addEventListener('click', e=>{
-    e.stopPropagation();
-    const id = el.dataset.buAdd;
-    openModal(`
-      <h3>백업 카드 추가</h3>
-      <label>아이콘(이모지)</label><input type="text" id="bIcon" placeholder="📎" maxlength="2">
-      <label>제목</label><input type="text" id="bTitle">
-      <label>설명</label><input type="text" id="bDesc">
-      <label>링크 (구글드라이브 등 자료 주소)</label><input type="url" id="bLink">
-      <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
-    `, m=>{
-      m.querySelector('#c').onclick = closeModal;
-      m.querySelector('#s').onclick = async ()=>{
-        const title = m.querySelector('#bTitle').value.trim();
-        if(!title){ toast('제목을 입력해주세요'); return; }
-        const w = widgetById(id);
-        const cards = [...(w.data.cards||[]), {
-          icon: m.querySelector('#bIcon').value.trim() || '📎',
-          title, desc: m.querySelector('#bDesc').value.trim(),
-          link: m.querySelector('#bLink').value.trim()
-        }];
-        await updateWidget(id, {'data.cards': cards});
-        closeModal();
-      };
-    });
-  }));
-  document.querySelectorAll('[data-bu-del]').forEach(el=> el.addEventListener('click', async e=>{
-    e.stopPropagation();
-    const [id, idx] = el.dataset.buDel.split(':');
-    const w = widgetById(id);
-    const cards = [...w.data.cards]; cards.splice(Number(idx),1);
-    await updateWidget(id, {'data.cards': cards});
-  }));
-}
-
 /* ----- 음악 플레이어 (오디오 URL 또는 유튜브 링크) ----- */
 function bindMusic(){
   document.querySelectorAll('[data-mu-add]').forEach(el=> el.addEventListener('click', e=>{
@@ -929,39 +853,6 @@ function bindMusic(){
     }
     document.querySelectorAll(`[data-track^="${id}:"]`).forEach(x=> x.classList.remove('active'));
     el.classList.add('active');
-  }));
-}
-
-/* ----- 썰 ----- */
-function bindStory(){
-  document.querySelectorAll('[data-story-add]').forEach(el=> el.addEventListener('click', e=>{
-    e.stopPropagation();
-    const id = el.dataset.storyAdd;
-    openModal(`
-      <h3>새 글 작성</h3>
-      <label>제목</label><input type="text" id="sTitle">
-      <label>날짜</label><input type="date" id="sDate">
-      <label>내용</label><textarea id="sContent" style="min-height:140px;"></textarea>
-      <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">등록</button></div>
-    `, m=>{
-      m.querySelector('#c').onclick = closeModal;
-      m.querySelector('#s').onclick = async ()=>{
-        const title = m.querySelector('#sTitle').value.trim();
-        const content = m.querySelector('#sContent').value.trim();
-        if(!title || !content){ toast('제목과 내용을 입력해주세요'); return; }
-        const w = widgetById(id);
-        const entries = [...(w.data.entries||[]), {title, date: m.querySelector('#sDate').value, content}];
-        await updateWidget(id, {'data.entries': entries});
-        closeModal();
-      };
-    });
-  }));
-  document.querySelectorAll('[data-story-del]').forEach(el=> el.addEventListener('click', async e=>{
-    e.stopPropagation();
-    const [id, idx] = el.dataset.storyDel.split(':');
-    const w = widgetById(id);
-    const entries = [...w.data.entries]; entries.splice(Number(idx),1);
-    await updateWidget(id, {'data.entries': entries});
   }));
 }
 
