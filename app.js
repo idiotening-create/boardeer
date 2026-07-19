@@ -12,6 +12,10 @@ const lockBtn = document.getElementById('lockBtn');
 const lockBadge = document.getElementById('lockBadge');
 const siteNameEl = document.getElementById('siteName');
 const modalRoot = document.getElementById('modalRoot');
+const siteBannerEl = document.getElementById('siteBanner');
+const bannerSubEl = document.getElementById('bannerSub');
+const bannerEditBtn = document.getElementById('bannerEditBtn');
+const globalStyleBtn = document.getElementById('globalStyleBtn');
 
 /* ---------------- 설정 미완료 안내 ---------------- */
 
@@ -57,12 +61,20 @@ function pressAnim(el){
   setTimeout(()=> el.classList.remove('pressed'), 160);
 }
 
+function extractYouTubeId(url){
+  if(!url) return null;
+  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
 /* ---------------- 잠금 / 편집모드 ---------------- */
 
 function refreshLockUI(){
   document.body.classList.toggle('edit-mode', editMode);
   addBarEl.style.display = editMode ? 'flex' : 'none';
   siteNameEl.setAttribute('contenteditable', editMode ? 'true' : 'false');
+  bannerSubEl.setAttribute('contenteditable', editMode ? 'true' : 'false');
+  bannerEditBtn.style.display = editMode ? 'inline-flex' : 'none';
   lockBadge.textContent = editMode ? '🔓 편집 가능' : '🔒 보기 전용';
   lockBadge.classList.toggle('unlocked', editMode);
   lockBtn.textContent = editMode ? '잠그기' : '잠금 해제';
@@ -149,10 +161,124 @@ db.collection('meta').doc('site').onSnapshot(doc=>{
   if(doc.exists && doc.data().name){ siteNameEl.textContent = doc.data().name; }
 });
 
+/* ---------------- 배너 (항상 최상단 고정, 위젯 목록에는 없음) ---------------- */
+
+bannerSubEl.addEventListener('blur', ()=>{
+  if(!editMode) return;
+  db.collection('meta').doc('banner').set({ subtitle: bannerSubEl.textContent.trim() }, {merge:true});
+});
+
+bannerEditBtn.addEventListener('click', async ()=>{
+  const doc = await db.collection('meta').doc('banner').get();
+  const cur = doc.exists ? doc.data() : {};
+  openModal(`
+    <h3>배너 편집</h3>
+    <label>배너 사진 URL</label>
+    <input type="url" id="bImg" placeholder="https://..." value="${cur.image||''}">
+    <p style="font-size:.75rem;color:var(--ink-soft)">imgbb.com, postimages.org 등에 올린 뒤 "직접 링크" 주소를 붙여넣어주세요.</p>
+    <label>부제목</label>
+    <input type="text" id="bSub" value="${escapeHtml(cur.subtitle||'')}">
+    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
+  `, m=>{
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#s').onclick = async ()=>{
+      await db.collection('meta').doc('banner').set({
+        image: m.querySelector('#bImg').value.trim(),
+        subtitle: m.querySelector('#bSub').value.trim()
+      }, {merge:true});
+      closeModal();
+    };
+  });
+});
+
+db.collection('meta').doc('banner').onSnapshot(doc=>{
+  if(!doc.exists) return;
+  const d = doc.data();
+  if(d.image) siteBannerEl.style.backgroundImage = `url('${d.image}')`;
+  if(typeof d.subtitle === 'string' && document.activeElement !== bannerSubEl){
+    bannerSubEl.textContent = d.subtitle;
+  }
+});
+
+/* ---------------- 전체 스타일 (모든 위젯에 일괄 적용) ---------------- */
+
+const THEME_VARS = ['--rose','--sage','--gold','--paper','--card-bg','--card-bg2','--ink'];
+const FONT_DISPLAY_OPTIONS = ['Song Myung','Noto Serif KR','Nanum Myeongjo','Gowun Batang'];
+const FONT_BODY_OPTIONS = ['Noto Sans KR','Gowun Dodum'];
+
+function applyTheme(theme){
+  if(!theme) return;
+  THEME_VARS.forEach(v=>{
+    const key = v.replace('--','');
+    if(theme[key]) document.documentElement.style.setProperty(v, theme[key]);
+  });
+  if(theme.fontDisplay) document.documentElement.style.setProperty('--font-display', `'${theme.fontDisplay}', 'Noto Serif KR', serif`);
+  if(theme.fontBody) document.documentElement.style.setProperty('--font-body', `'${theme.fontBody}', sans-serif`);
+}
+
+db.collection('meta').doc('theme').onSnapshot(doc=>{
+  if(doc.exists) applyTheme(doc.data());
+});
+
+globalStyleBtn.addEventListener('click', async ()=>{
+  if(!editMode){ toast('잠금 해제 후 편집모드에서 변경할 수 있어요'); return; }
+  const cs = getComputedStyle(document.documentElement);
+  const cur = {};
+  THEME_VARS.forEach(v=> cur[v.replace('--','')] = cs.getPropertyValue(v).trim());
+  openModal(`
+    <h3>전체 스타일</h3>
+    <p style="font-size:.78rem;color:var(--ink-soft)">여기서 바꾸면 모든 위젯에 한 번에 적용돼요. 위젯별로 따로 지정해둔 색은 아래에서 초기화할 수 있어요.</p>
+    <label>메인 포인트 컬러</label>
+    <div class="color-row"><input type="color" id="tRose" value="${cur.rose}"></div>
+    <label>보조 포인트 컬러</label>
+    <div class="color-row"><input type="color" id="tSage" value="${cur.sage}"></div>
+    <label>라인/코너 컬러</label>
+    <div class="color-row"><input type="color" id="tGold" value="${cur.gold}"></div>
+    <label>배경색</label>
+    <div class="color-row"><input type="color" id="tPaper" value="${cur.paper}"></div>
+    <label>카드 배경색</label>
+    <div class="color-row"><input type="color" id="tCardBg" value="${cur['card-bg']}"></div>
+    <label>글자색</label>
+    <div class="color-row"><input type="color" id="tInk" value="${cur.ink}"></div>
+    <label>제목 폰트</label>
+    <select id="tFontDisplay">${FONT_DISPLAY_OPTIONS.map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
+    <label>본문 폰트</label>
+    <select id="tFontBody">${FONT_BODY_OPTIONS.map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;">
+      <input type="checkbox" id="tReset" style="width:auto;"> 위젯별로 따로 지정한 색상 전부 초기화
+    </label>
+    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">전체 적용</button></div>
+  `, m=>{
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#s').onclick = async ()=>{
+      const theme = {
+        rose: m.querySelector('#tRose').value,
+        sage: m.querySelector('#tSage').value,
+        gold: m.querySelector('#tGold').value,
+        paper: m.querySelector('#tPaper').value,
+        'card-bg': m.querySelector('#tCardBg').value,
+        ink: m.querySelector('#tInk').value,
+        fontDisplay: m.querySelector('#tFontDisplay').value,
+        fontBody: m.querySelector('#tFontBody').value
+      };
+      await db.collection('meta').doc('theme').set(theme, {merge:true});
+      if(m.querySelector('#tReset').checked){
+        const batch = db.batch();
+        widgets.forEach(w=>{
+          batch.update(db.collection('widgets').doc(w.id), { bg: { color:'', text:'', image: w.bg?.image || '' } });
+        });
+        await batch.commit();
+      }
+      closeModal();
+      toast('전체 스타일을 적용했어요');
+    };
+  });
+});
+
 /* ---------------- Firestore 동기화 ---------------- */
 
 db.collection('widgets').orderBy('order').onSnapshot(snap=>{
-  widgets = snap.docs.map(d=> ({ id: d.id, ...d.data() }));
+  widgets = snap.docs.map(d=> ({ id: d.id, ...d.data() })).filter(w=> w.type !== 'banner' && w.type !== 'commission');
   renderAll();
 }, err=>{
   console.error(err);
@@ -161,7 +287,6 @@ db.collection('widgets').orderBy('order').onSnapshot(snap=>{
 
 async function addWidget(type){
   const defaults = {
-    banner:     { title:'배너', span:12, data:{ subtitle:'여기에 부제목을 적어주세요' } },
     dday:       { title:'디데이', span:4, data:{ items:[] } },
     calendar:   { title:'캘린더', span:8, data:{ events:{} } },
     gallery:    { title:'갤러리', span:6, data:{ images:[] } },
@@ -169,7 +294,6 @@ async function addWidget(type){
     backup:     { title:'외부자료 백업', span:6, data:{ cards:[] } },
     music:      { title:'음악 플레이어', span:4, data:{ tracks:[] } },
     story:      { title:'썰', span:6, data:{ entries:[] } },
-    commission: { title:'커미션', span:6, data:{ items:[] } },
   };
   const base = defaults[type];
   if(!base) return;
@@ -201,10 +325,10 @@ function openSettingsModal(w){
   openModal(`
     <h3>위젯 설정</h3>
     <label>카드 배경색</label>
-    <div class="color-row"><input type="color" id="setBg" value="${w.bg?.color || '#2a1417'}"><span>비워두면 기본값</span>
+    <div class="color-row"><input type="color" id="setBg" value="${w.bg?.color || '#1c0e12'}"><span>비워두면 기본값</span>
       <button class="btn small ghost" id="clearBg">초기화</button></div>
     <label>글자색</label>
-    <div class="color-row"><input type="color" id="setText" value="${w.bg?.text || '#f3e6e2'}">
+    <div class="color-row"><input type="color" id="setText" value="${w.bg?.text || '#e2ddE3'}">
       <button class="btn small ghost" id="clearText">초기화</button></div>
     <label>배경 사진 URL (선택)</label>
     <input type="url" id="setImg" placeholder="https://..." value="${w.bg?.image || ''}">
@@ -221,8 +345,8 @@ function openSettingsModal(w){
       <button class="btn primary" id="saveSet">저장</button>
     </div>
   `, (m)=>{
-    m.querySelector('#clearBg').onclick = ()=> m.querySelector('#setBg').value = '#2a1417';
-    m.querySelector('#clearText').onclick = ()=> m.querySelector('#setText').value = '#f3e6e2';
+    m.querySelector('#clearBg').onclick = ()=> m.querySelector('#setBg').value = '#1c0e12';
+    m.querySelector('#clearText').onclick = ()=> m.querySelector('#setText').value = '#e2ddE3';
     m.querySelector('#closeSet').onclick = closeModal;
     m.querySelector('#delW').onclick = ()=>{ closeModal(); deleteWidget(w.id); };
     m.querySelector('#saveSet').onclick = async ()=>{
@@ -261,12 +385,6 @@ function widgetFrame(w, bodyHtml){
 }
 
 /* ---------------- 타입별 렌더러 ---------------- */
-
-function render_banner(w){
-  return `
-    <div class="banner-sub" data-editfield="subtitle" data-id="${w.id}" contenteditable="${editMode}">${escapeHtml(w.data.subtitle||'')}</div>
-  `;
-}
 
 function ddayDiffText(dateStr){
   const today = new Date(); today.setHours(0,0,0,0);
@@ -323,7 +441,7 @@ function render_gallery(w){
   const imgs = w.data.images || [];
   return `
     <div class="gallery-grid">
-      ${imgs.map((url,i)=> `<img src="${escapeHtml(url)}" data-gal-view="${w.id}:${i}">`).join('')}
+      ${imgs.map((url,i)=> `<div class="g-item" data-gal-view="${w.id}:${i}"><img src="${escapeHtml(url)}"></div>`).join('')}
       ${editMode ? `<div class="gallery-add" data-gal-add="${w.id}">＋</div>` : ''}
     </div>
     ${imgs.length===0 && !editMode ? `<div class="empty-hint">아직 사진이 없어요</div>` : ''}
@@ -374,7 +492,8 @@ function render_music(w){
         </div>
       `).join('') || `<div class="empty-hint">등록된 곡이 없어요</div>`}
     </div>
-    <audio data-player="${w.id}" style="width:100%;margin-top:6px;" controls></audio>
+    <audio data-player="${w.id}" style="margin-top:6px;" controls></audio>
+    <div class="yt-frame" data-ytframe="${w.id}" style="display:none;margin-top:6px;"></div>
     ${editMode ? `<button class="btn small" data-mu-add="${w.id}" style="margin-top:6px;">+ 곡 추가</button>` : ''}
   `;
 }
@@ -396,26 +515,10 @@ function render_story(w){
   `;
 }
 
-function render_commission(w){
-  const items = w.data.items || [];
-  return `
-    ${editMode ? `<button class="btn small" data-comm-add="${w.id}">+ 커미션 추가</button>` : ''}
-    ${items.map((c,i)=> `
-      <div class="commission-card">
-        ${c.image ? `<img src="${escapeHtml(c.image)}">` : ''}
-        <h4>${escapeHtml(c.artist)}</h4>
-        <div class="meta">${escapeHtml(c.status||'')} ${c.price?(' · '+escapeHtml(c.price)):''}</div>
-        ${c.link ? `<a class="bc-link" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">링크 ↗</a>` : ''}
-        ${editMode ? `<div style="text-align:right;"><span class="icon-btn" data-comm-del="${w.id}:${i}" style="width:22px;height:22px;">✕</span></div>` : ''}
-      </div>
-    `).join('') || `<div class="empty-hint">등록된 커미션이 없어요</div>`}
-  `;
-}
-
 const renderers = {
-  banner: render_banner, dday: render_dday, calendar: render_calendar,
+  dday: render_dday, calendar: render_calendar,
   gallery: render_gallery, embed: render_embed, backup: render_backup,
-  music: render_music, story: render_story, commission: render_commission
+  music: render_music, story: render_story
 };
 
 /* ---------------- 전체 렌더 + 이벤트 위임 ---------------- */
@@ -462,13 +565,8 @@ function bindEvents(){
     el.addEventListener('click', (e)=>{ e.stopPropagation(); openSettingsModal(widgets.find(w=>w.id===el.dataset.settings)); });
   });
 
-  // 배너 부제목 편집
-  document.querySelectorAll('[data-editfield="subtitle"]').forEach(el=>{
-    el.addEventListener('blur', ()=> updateWidget(el.dataset.id, { 'data.subtitle': el.textContent.trim() }));
-  });
-
   bindDday(); bindCalendar(); bindGallery(); bindEmbed();
-  bindBackup(); bindMusic(); bindStory(); bindCommission();
+  bindBackup(); bindMusic(); bindStory();
 }
 
 function widgetById(id){ return widgets.find(w=>w.id===id); }
@@ -552,7 +650,7 @@ function bindCalendar(){
   }));
 }
 
-/* ----- 갤러리 ----- */
+/* ----- 갤러리 (벤토형) ----- */
 function bindGallery(){
   document.querySelectorAll('[data-gal-add]').forEach(el=> el.addEventListener('click', e=>{
     e.stopPropagation();
@@ -653,7 +751,7 @@ function bindBackup(){
   }));
 }
 
-/* ----- 음악 플레이어 ----- */
+/* ----- 음악 플레이어 (오디오 URL 또는 유튜브 링크) ----- */
 function bindMusic(){
   document.querySelectorAll('[data-mu-add]').forEach(el=> el.addEventListener('click', e=>{
     e.stopPropagation();
@@ -661,8 +759,8 @@ function bindMusic(){
     openModal(`
       <h3>곡 추가</h3>
       <label>곡 제목</label><input type="text" id="mTitle">
-      <label>오디오 파일 URL (mp3 등 직접재생 가능한 주소)</label><input type="url" id="mUrl">
-      <p style="font-size:.75rem;color:var(--ink-soft)">구글 드라이브 공유링크(다운로드 직링크로 변환), Dropbox 등에 올린 뒤 주소를 붙여넣어주세요.</p>
+      <label>오디오 파일 URL 또는 유튜브 링크</label><input type="url" id="mUrl" placeholder="mp3 직링크 또는 https://youtu.be/...">
+      <p style="font-size:.75rem;color:var(--ink-soft)">유튜브 영상 링크를 그대로 붙여넣으면 화면 안에서 바로 재생돼요. 직접 mp3 파일은 구글드라이브 등에 올린 뒤 다운로드 직링크를 붙여넣어주세요.</p>
       <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
     `, m=>{
       m.querySelector('#c').onclick = closeModal;
@@ -688,9 +786,18 @@ function bindMusic(){
     const [id, idx] = el.dataset.track.split(':');
     const w = widgetById(id);
     const t = w.data.tracks[idx];
-    const player = document.querySelector(`[data-player="${id}"]`);
-    player.src = t.url;
-    player.play().catch(()=>{});
+    const audioEl = document.querySelector(`[data-player="${id}"]`);
+    const ytEl = document.querySelector(`[data-ytframe="${id}"]`);
+    const ytId = extractYouTubeId(t.url);
+    if(ytId){
+      audioEl.pause(); audioEl.removeAttribute('src'); audioEl.style.display = 'none';
+      ytEl.style.display = 'block';
+      ytEl.innerHTML = `<iframe height="190" src="https://www.youtube.com/embed/${ytId}?autoplay=1" title="${escapeHtml(t.title)}" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+    } else {
+      ytEl.style.display = 'none'; ytEl.innerHTML = '';
+      audioEl.style.display = 'block';
+      audioEl.src = t.url; audioEl.play().catch(()=>{});
+    }
     document.querySelectorAll(`[data-track^="${id}:"]`).forEach(x=> x.classList.remove('active'));
     el.classList.add('active');
   }));
@@ -726,49 +833,6 @@ function bindStory(){
     const w = widgetById(id);
     const entries = [...w.data.entries]; entries.splice(Number(idx),1);
     await updateWidget(id, {'data.entries': entries});
-  }));
-}
-
-/* ----- 커미션 ----- */
-function bindCommission(){
-  document.querySelectorAll('[data-comm-add]').forEach(el=> el.addEventListener('click', e=>{
-    e.stopPropagation();
-    const id = el.dataset.commAdd;
-    openModal(`
-      <h3>커미션 추가</h3>
-      <label>작가/작업자</label><input type="text" id="cArtist">
-      <div class="row">
-        <div><label>진행 상태</label>
-          <select id="cStatus"><option>대기</option><option>진행중</option><option>완료</option></select>
-        </div>
-        <div><label>금액 (선택)</label><input type="text" id="cPrice"></div>
-      </div>
-      <label>이미지 URL (선택)</label><input type="url" id="cImage">
-      <label>링크 (선택)</label><input type="url" id="cLink">
-      <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
-    `, m=>{
-      m.querySelector('#c').onclick = closeModal;
-      m.querySelector('#s').onclick = async ()=>{
-        const artist = m.querySelector('#cArtist').value.trim();
-        if(!artist){ toast('작가명을 입력해주세요'); return; }
-        const w = widgetById(id);
-        const items = [...(w.data.items||[]), {
-          artist, status: m.querySelector('#cStatus').value,
-          price: m.querySelector('#cPrice').value.trim(),
-          image: m.querySelector('#cImage').value.trim(),
-          link: m.querySelector('#cLink').value.trim()
-        }];
-        await updateWidget(id, {'data.items': items});
-        closeModal();
-      };
-    });
-  }));
-  document.querySelectorAll('[data-comm-del]').forEach(el=> el.addEventListener('click', async e=>{
-    e.stopPropagation();
-    const [id, idx] = el.dataset.commDel.split(':');
-    const w = widgetById(id);
-    const items = [...w.data.items]; items.splice(Number(idx),1);
-    await updateWidget(id, {'data.items': items});
   }));
 }
 
