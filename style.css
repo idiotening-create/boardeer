@@ -61,10 +61,15 @@ body{
   font-family: var(--font-body);
   color: var(--ink);
   background-color: var(--paper);
-  /* 한지 위에 옅게 스민 망점 텍스처 + 은은한 대각선 그라데이션으로 깊이감만 살짝 */
+  /* 한지 위에 옅게 스민 망점 텍스처 + 은은한 대각선 그라데이션으로 깊이감만 살짝
+     ※ 그라데이션 색을 --paper 기준으로 계산해서, 전체 스타일에서 배경색을 바꾸면
+        이 그라데이션도 함께 바뀌도록 함 (예전엔 색이 고정돼 있어서 변경이 반영 안 됐음) */
   background-image:
     radial-gradient(var(--dot) 1.4px, transparent 1.4px),
-    linear-gradient(160deg, #F6F2F4 0%, #EFE7EA 45%, #E7DEE2 100%);
+    linear-gradient(160deg,
+      color-mix(in srgb, var(--paper) 100%, white 25%) 0%,
+      var(--paper) 45%,
+      color-mix(in srgb, var(--paper) 100%, black 8%) 100%);
   background-size: 24px 24px, 100% 100%;
   background-attachment: fixed, fixed;
   min-height: 100vh;
@@ -213,6 +218,7 @@ body::before{
   display:flex; align-items:center; justify-content:center;
   cursor: grab; font-size:.85rem; color: var(--ink-soft);
   letter-spacing: -1px;
+  touch-action: none; /* 손잡이를 터치로 끌 때 화면이 같이 스크롤되지 않도록 함 */
 }
 .drag-handle:active{ cursor: grabbing; }
 
@@ -307,6 +313,11 @@ body::before{
   content:""; position:absolute; bottom:3px; width:4px; height:4px; border-radius:50%;
   background: var(--rose);
 }
+.cal-day.has-dday{ font-weight:700; }
+.cal-dday-dot{
+  position:absolute; top:1px; right:2px;
+  font-size:.55rem; line-height:1; color: var(--rose);
+}
 .cal-day.empty{ visibility:hidden; }
 .cal-day:hover{ background: rgba(101,25,38,0.08); }
 
@@ -337,6 +348,16 @@ body::before{
   display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--ink-soft);
   grid-column: span 1; grid-row: span 1;
   background: rgba(255,255,255,0.3);
+}
+
+/* ---------- 이미지 전용 위젯 (갤러리와 별개, 사진 한 장만) ---------- */
+.image-widget-pic{
+  border-radius:12px; overflow:hidden; cursor:pointer;
+  border: 1px solid var(--card-border);
+  background: rgba(101,25,38,0.05);
+}
+.image-widget-pic img{
+  width:100%; max-height:340px; object-fit:contain; display:block;
 }
 
 /* ---------- 외부 링크 임베드 ---------- */
