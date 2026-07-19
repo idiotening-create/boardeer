@@ -1,23 +1,30 @@
 /* =========================================================
    자캐커플 갠홈 — style.css
-   컨셉: "다이어리 방안지 위에 핀으로 고정한 스크랩북 카드"
+   컨셉: 동양풍 느와르 — 먹빛 배경 위에 놓인 인장(印) 카드
+   (스크랩북/다이어리 요소 제거: 핀 눌림 애니메이션, 금장 꺽쇠,
+    책장 접힌 모서리 대신 낙관(落款) 인장 모티프로 교체)
+   팔레트: 체리 팔레트 적용
+     Night Bordeaux #651926 · Coffee Bean #0F0406 · Rosy Granite #95929C
+     Alabaster Grey #E2DDE3 · Mauve Shadow #462831
    ========================================================= */
 
-@import url('https://fonts.googleapis.com/css2?family=Song+Myung&family=Noto+Serif+KR:wght@400;500;700&family=Noto+Sans+KR:wght@300;400;500&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Song+Myung&family=Noto+Serif+KR:wght@400;500;700&family=Nanum+Myeongjo:wght@400;700;800&family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@300;400;500&family=Gowun+Dodum&family=JetBrains+Mono:wght@400;600&display=swap');
 
 :root{
-  /* ---- 검붉은 팔레트 (사용자가 위젯별로 덮어쓸 수 있음) ---- */
-  --paper: #140b0c;
-  --dot: #331519;
-  --ink: #ece1d8;
-  --ink-soft: #a8877e;
-  --rose: #9c1c30;
-  --sage: #7a2f36;
-  --gold: #c6a15b;
-  --gold-soft: #8a7145;
-  --card-bg: #1f1112;
-  --card-bg2: #281618;
-  --card-border: #4a2a2a;
+  color-scheme: dark; /* 브라우저 기본 폼 컨트롤(오디오/날짜 등)도 어둡게 유도 */
+
+  /* ---- 체리 팔레트 ---- */
+  --paper: #0F0406;       /* Coffee Bean */
+  --dot: #2a1620;
+  --ink: #E2DDE3;         /* Alabaster Grey */
+  --ink-soft: #95929C;    /* Rosy Granite */
+  --rose: #651926;        /* Night Bordeaux (메인 포인트) */
+  --sage: #462831;        /* Mauve Shadow (보조 포인트) */
+  --gold: #95929C;        /* Rosy Granite를 라인/코너 컬러로 재사용 */
+  --gold-soft: #6f6d78;
+  --card-bg: #1c0e12;
+  --card-bg2: #2c1620;
+  --card-border: #462831; /* Mauve Shadow */
   --shadow: 0 10px 26px rgba(0,0,0,0.6);
   --shadow-press: 0 3px 10px rgba(0,0,0,0.65);
 
@@ -38,12 +45,52 @@ body{
   font-family: var(--font-body);
   color: var(--ink);
   background-color: var(--paper);
-  /* 방안지 도트 패턴 */
+  /* 먹빛 스크린톤(망점) 텍스처 — 동양풍 느와르 만화의 명암 표현 방식 */
   background-image: radial-gradient(var(--dot) 1.1px, transparent 1.1px);
   background-size: 22px 22px;
   background-attachment: fixed;
   min-height: 100vh;
   padding-bottom: 80px;
+  position: relative;
+}
+/* 화면 가장자리를 은은하게 어둡게 눌러주는 먹 번짐(비네트) 효과 */
+body::before{
+  content:"";
+  position: fixed; inset:0;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,0.55) 100%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ---------- 배너 (위젯이 아닌, 항상 최상단 고정 요소) ---------- */
+.site-banner{
+  position: relative;
+  width: 100%;
+  height: 240px;
+  background-color: var(--card-bg);
+  background-size: cover;
+  background-position: center;
+  border-bottom: 1px solid var(--card-border);
+  display:flex; align-items:flex-end;
+  overflow:hidden;
+}
+.site-banner-scrim{
+  position:absolute; inset:0;
+  background: linear-gradient(180deg, rgba(15,4,6,0) 35%, rgba(15,4,6,0.92) 100%);
+}
+.site-banner-sub{
+  position:relative; z-index:1;
+  padding: 16px 22px;
+  font-family: var(--font-display);
+  font-size: .95rem;
+  color: var(--ink-soft);
+  max-width: 640px;
+}
+.site-banner-sub[contenteditable="true"]{ outline:none; }
+.site-banner-sub[contenteditable="true"]:hover{ background: rgba(255,255,255,0.06); cursor:text; }
+.site-banner-sub:empty:before{ content: attr(data-placeholder); color: var(--ink-soft); opacity:.7; }
+.banner-edit-btn{
+  position:absolute; right:16px; bottom:14px; z-index:2;
 }
 
 /* ---------- 상단 헤더 / 잠금 컨트롤 ---------- */
@@ -51,7 +98,7 @@ body{
   position: sticky; top:0; z-index: 50;
   display:flex; align-items:center; justify-content:space-between;
   padding: 10px 22px;
-  background: rgba(26,14,16,0.85);
+  background: rgba(15,4,6,0.88);
   backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--gold-soft);
 }
@@ -119,16 +166,16 @@ body{
 .widget[data-span="8"]{ grid-column: span 8; }
 .widget[data-span="12"]{ grid-column: span 12; }
 
-.widget:hover{ transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0,0,0,0.6); border-color: var(--gold-soft); z-index: 2; }
+.widget:hover{ box-shadow: 0 16px 34px rgba(0,0,0,0.68); border-color: var(--rose); z-index: 2; }
 
 @media (max-width: 980px){
   .widget, .widget[data-span]{ grid-column: 1 / -1; grid-row: auto !important; }
   .dashboard{ grid-auto-rows: auto; }
 }
 
-/* 클릭 애니메이션: 살짝 눌리는 느낌 */
-.widget:active{ transform: translateY(4px); box-shadow: var(--shadow-press); }
-.widget.pressed{ transform: translateY(4px); box-shadow: var(--shadow-press); }
+/* 클릭 반응: 통통 튀는 느낌 대신 살짝 어두워지는 절제된 반응 */
+.widget:active{ filter: brightness(0.94); }
+.widget.pressed{ filter: brightness(0.94); }
 
 /* 위젯 배경 사진 (선택) */
 .widget.has-bg .widget-bg{
@@ -140,24 +187,26 @@ body{
 .widget.has-bg .widget-body,
 .widget.has-bg .widget-header{ position:relative; z-index:1; }
 
-/* 모서리 금장 브래킷 — 동양 액자를 연상시키는 시그니처 요소 */
-.widget::before, .widget::after{
+/* 낙관(落款) 인장 — 동양 서화의 도장처럼 카드 우하단에 찍힌 작은 인장 */
+.widget::after{
   content:"";
-  position:absolute; width:14px; height:14px;
-  border-color: var(--gold);
-  border-style: solid;
-  opacity:.65;
+  position:absolute; bottom:12px; right:12px;
+  width:15px; height:15px;
+  border: 1.5px solid var(--rose);
+  border-radius: 2px;
+  background: rgba(101,25,38,0.18);
+  opacity:.7;
   z-index:3;
   pointer-events:none;
-  transition: opacity .18s ease, border-color .18s ease;
+  transition: opacity .18s ease, transform .18s ease;
 }
-.widget::before{ top:9px; left:9px; border-width:1px 0 0 1px; }
-.widget::after{ bottom:9px; right:9px; border-width:0 1px 1px 0; }
-.widget:hover::before, .widget:hover::after{ opacity: 1; }
+.widget:hover::after{ opacity:1; transform: scale(1.12); }
 
 .widget-header{
   display:flex; align-items:center; justify-content:space-between;
-  padding: 18px 16px 8px 16px;
+  padding: 18px 16px 10px 16px;
+  border-bottom: 1px solid rgba(149,146,156,0.22);
+  margin-bottom: 4px;
   flex: 0 0 auto;
 }
 .widget-title{
@@ -194,13 +243,6 @@ body{
   gap:10px;
 }
 
-/* ---------- 배너 ---------- */
-.widget.type-banner{ min-height: 220px; }
-.widget.type-banner .widget-header{ justify-content:center; padding-top:34px; }
-.widget.type-banner .widget-title{ font-size: 2rem; }
-.widget.type-banner .widget-body{ justify-content:center; align-items:center; text-align:center; }
-.banner-sub{ color: var(--ink-soft); font-size: .95rem; }
-
 /* ---------- 디데이 ---------- */
 .dday-item{
   display:flex; align-items:baseline; justify-content:space-between;
@@ -208,7 +250,7 @@ body{
   padding: 6px 0;
 }
 .dday-label{ font-size:.9rem; }
-.dday-count{ font-family: var(--font-mono); font-weight:600; color: var(--rose); }
+.dday-count{ font-family: var(--font-display); font-weight:700; letter-spacing:.03em; color: var(--rose); }
 
 /* ---------- 캘린더 ---------- */
 .cal-head{ display:flex; align-items:center; justify-content:space-between; }
@@ -227,17 +269,31 @@ body{
 .cal-day.empty{ visibility:hidden; }
 .cal-day:hover{ background: rgba(255,255,255,0.06); }
 
-/* ---------- 갤러리 ---------- */
-.gallery-grid{ display:grid; grid-template-columns: repeat(3,1fr); gap:6px; }
-.gallery-grid img{
-  width:100%; aspect-ratio:1/1; object-fit:cover; border-radius:2px; cursor:pointer;
-  border: 1px solid var(--card-border);
-  transition: transform .15s;
+/* ---------- 갤러리 (벤토형) ---------- */
+.gallery-grid{
+  display:grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-auto-rows: 78px;
+  grid-auto-flow: dense;
+  gap: 6px;
 }
-.gallery-grid img:hover{ transform: scale(1.03); }
+.gallery-grid .g-item{
+  position:relative; border-radius:3px; overflow:hidden; cursor:pointer;
+  border: 1px solid var(--card-border);
+}
+.gallery-grid .g-item img{
+  width:100%; height:100%; object-fit:cover; display:block;
+  transition: transform .2s ease;
+}
+.gallery-grid .g-item:hover img{ transform: scale(1.05); }
+/* 6개 단위 반복 패턴으로 큰 타일/좁은 타일을 섞어 벤토 레이아웃을 만듦 */
+.gallery-grid .g-item:nth-child(6n+1){ grid-column: span 2; grid-row: span 2; }
+.gallery-grid .g-item:nth-child(6n+4){ grid-row: span 2; }
+.gallery-grid .g-item:nth-child(6n+5){ grid-column: span 2; }
 .gallery-add{
-  aspect-ratio:1/1; border-radius:2px; border:1px dashed var(--card-border);
+  border-radius:3px; border:1px dashed var(--card-border);
   display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--ink-soft);
+  grid-column: span 1; grid-row: span 1;
 }
 
 /* ---------- 외부 링크 임베드 ---------- */
@@ -263,22 +319,29 @@ body{
   display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:2px; cursor:pointer;
   font-size:.85rem;
 }
-.player-track.active{ background: rgba(201,123,132,0.12); font-weight:600; }
+.player-track.active{ background: rgba(101,25,38,0.22); font-weight:600; }
 .player-controls{ display:flex; align-items:center; gap:10px; justify-content:center; padding: 6px 0; }
 .player-controls button{
   border:none; background:var(--rose); color:#fff; width:34px; height:34px; border-radius:50%;
   cursor:pointer; font-size:.9rem;
 }
 .player-now{ text-align:center; font-size:.8rem; color:var(--ink-soft); }
+/* 흰색 기본 오디오 컨트롤을 어두운 톤으로 반전 */
+audio{
+  width:100%;
+  border-radius: 20px;
+  background: var(--card-bg2);
+  filter: invert(88%) hue-rotate(180deg) brightness(0.92) contrast(0.9);
+}
+.yt-frame iframe{ width:100%; border:0; border-radius:4px; display:block; }
 
-/* ---------- 썰 / 커미션 리스트 ---------- */
-.story-entry, .commission-card{
+/* ---------- 썰 ---------- */
+.story-entry{
   border: 1px solid var(--card-border); border-radius:2px; padding:10px; background: var(--card-bg2);
 }
-.story-entry h4, .commission-card h4{ margin:0 0 4px 0; font-family: var(--font-display); font-size:.95rem; }
-.story-entry .meta, .commission-card .meta{ font-size:.72rem; color:var(--ink-soft); margin-bottom:4px; }
+.story-entry h4{ margin:0 0 4px 0; font-family: var(--font-display); font-size:.95rem; }
+.story-entry .meta{ font-size:.72rem; color:var(--ink-soft); margin-bottom:4px; }
 .story-entry .content{ font-size:.85rem; line-height:1.5; white-space:pre-wrap; }
-.commission-card img{ width:100%; border-radius:2px; margin-bottom:6px; }
 
 /* ---------- 위젯 추가 바 ---------- */
 .add-widget-bar{
@@ -288,18 +351,19 @@ body{
 
 /* ---------- 모달 ---------- */
 .modal-overlay{
-  position: fixed; inset:0; background: rgba(58,53,50,0.45);
+  position: fixed; inset:0; background: rgba(0,0,0,0.55);
   display:flex; align-items:center; justify-content:center; z-index: 200;
   animation: fadeIn .15s ease;
 }
 @keyframes fadeIn{ from{opacity:0} to{opacity:1} }
 .modal{
   background: var(--paper);
+  border: 1px solid var(--card-border);
   border-radius: 3px;
   padding: 22px;
   width: min(420px, 90vw);
   max-height: 85vh; overflow:auto;
-  box-shadow: 0 12px 30px rgba(0,0,0,.25);
+  box-shadow: 0 12px 30px rgba(0,0,0,.5);
   animation: popIn .18s ease;
 }
 @keyframes popIn{ from{ transform: translateY(10px); opacity:0 } to{ transform: translateY(0); opacity:1 } }
@@ -324,6 +388,6 @@ body{
 
 .toast{
   position: fixed; bottom: 20px; left:50%; transform: translateX(-50%);
-  background: var(--ink); color:#fff; padding: 10px 18px; border-radius: 2px;
+  background: var(--card-bg2); color: var(--ink); border:1px solid var(--card-border); padding: 10px 18px; border-radius: 2px;
   font-size:.82rem; z-index: 300; animation: fadeIn .15s ease;
 }
