@@ -421,6 +421,7 @@ async function addWidget(type){
     gallery:    { title:'Gallery', span:6, data:{ images:[] } },
     embed:      { title:'Embed', span:6, data:{ url:'' } },
     music:      { title:'Music', span:4, data:{ tracks:[] } },
+    image:      { title:'Photo', span:4, data:{ url:'' } },
   };
   const base = defaults[type];
   if(!base) return;
@@ -553,6 +554,19 @@ function ddayDiffText(dateStr){
   return diff > 0 ? `D-${diff}` : `D+${Math.abs(diff)}`;
 }
 
+/* 모든 디데이 위젯의 날짜를 date -> [label, ...] 형태로 모아서
+   캘린더 위젯이 자동으로 참고할 수 있게 함 (별도 저장 없이 매 렌더마다 계산) */
+function collectDdayByDate(){
+  const map = {};
+  widgets.filter(w=> w.type==='dday').forEach(w=>{
+    (w.data.items||[]).forEach(it=>{
+      if(!it.date) return;
+      (map[it.date] = map[it.date] || []).push(it.label);
+    });
+  });
+  return map;
+}
+
 function render_dday(w){
   const items = w.data.items || [];
   const rows = items.map((it,i)=> `
@@ -572,6 +586,7 @@ function render_dday(w){
 function render_calendar(w){
   const st = calendarMonthState[w.id] || (calendarMonthState[w.id] = (()=>{ const d=new Date(); return {y:d.getFullYear(), m:d.getMonth()}; })());
   const events = w.data.events || {};
+  const ddayByDate = collectDdayByDate();
   const first = new Date(st.y, st.m, 1);
   const startDow = first.getDay();
   const daysInMonth = new Date(st.y, st.m+1, 0).getDate();
@@ -581,7 +596,8 @@ function render_calendar(w){
   for(let d=1; d<=daysInMonth; d++){
     const dateStr = `${st.y}-${String(st.m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const has = events[dateStr] && events[dateStr].length;
-    cells += `<div class="cal-day ${dateStr===todayStr?'today':''} ${has?'has-event':''}" data-cal-day="${w.id}:${dateStr}">${d}</div>`;
+    const hasDday = ddayByDate[dateStr] && ddayByDate[dateStr].length;
+    cells += `<div class="cal-day ${dateStr===todayStr?'today':''} ${has?'has-event':''} ${hasDday?'has-dday':''}" data-cal-day="${w.id}:${dateStr}">${d}${hasDday?'<span class="cal-dday-dot">♥</span>':''}</div>`;
   }
   return `
     <div class="cal-head">
@@ -637,10 +653,20 @@ function render_music(w){
   `;
 }
 
+function render_image(w){
+  const url = w.data.url;
+  return `
+    ${url
+      ? `<div class="image-widget-pic" data-img-view="${w.id}"><img src="${escapeHtml(url)}"></div>`
+      : `<div class="empty-hint">아직 사진이 없어요</div>`}
+    ${editMode ? `<button class="btn small" data-img-edit="${w.id}" style="margin-top:8px;">🖼️ 사진 ${url?'변경':'추가'}</button>` : ''}
+  `;
+}
+
 const renderers = {
   dday: render_dday, calendar: render_calendar,
   gallery: render_gallery, embed: render_embed,
-  music: render_music
+  music: render_music, image: render_image
 };
 
 /* ---------------- 전체 렌더 + 이벤트 위임 ---------------- */
@@ -688,17 +714,22 @@ function bindEvents(){
   });
 
   bindDday(); bindCalendar(); bindGallery(); bindEmbed();
-  bindMusic(); bindDragReorder();
+  bindMusic(); bindImage(); bindDragReorder();
 }
 
 function widgetById(id){ return widgets.find(w=>w.id===id); }
 
-/* ----- 드래그로 위젯 순서 바꾸기 (잠금 해제 상태에서만 동작) ----- */
+/* ----- 드래그로 위젯 순서 바꾸기 (잠금 해제 상태에서만 동작) -----
+   데스크톱(마우스)은 HTML5 Drag&Drop, 폰/태블릿(터치)은 손잡이(⠿)를
+   Pointer Events로 눌러서 끄는 방식으로 둘 다 지원함. */
 let dragSrcId = null;
+let touchDragState = null; // {srcId, srcEl, overId}
 
 function bindDragReorder(){
   if(!editMode) return;
+
   document.querySelectorAll('.widget').forEach(el=>{
+    // ---- 데스크톱 마우스: 기존 HTML5 Drag & Drop ----
     el.addEventListener('dragstart', e=>{
       // 제목 편집, 버튼, 입력창 등 내부 조작 중에는 드래그가 시작되지 않도록 함
       if(e.target.closest('input, textarea, select, button, .icon-btn, [contenteditable="true"]')){
@@ -732,6 +763,47 @@ function bindDragReorder(){
       if(!srcId || srcId === targetId) return;
       await reorderWidgets(srcId, targetId);
     });
+  });
+
+  // ---- 폰/태블릿 터치: 손잡이(⠿)를 누른 채로 끌기 ----
+  // (HTML5 Drag&Drop은 대부분의 모바일 브라우저에서 동작하지 않아서 별도 처리)
+  document.querySelectorAll('.drag-handle').forEach(handle=>{
+    handle.addEventListener('pointerdown', e=>{
+      if(e.pointerType === 'mouse') return; // 마우스는 위쪽 HTML5 DnD가 이미 처리함
+      const widgetEl = handle.closest('.widget');
+      if(!widgetEl) return;
+      e.preventDefault();
+      touchDragState = { srcId: widgetEl.dataset.id, srcEl: widgetEl, overId: null };
+      widgetEl.classList.add('dragging');
+      try{ handle.setPointerCapture(e.pointerId); }catch(_){}
+    });
+
+    handle.addEventListener('pointermove', e=>{
+      if(!touchDragState) return;
+      e.preventDefault();
+      const under = document.elementFromPoint(e.clientX, e.clientY);
+      const overWidget = under && under.closest('.widget');
+      document.querySelectorAll('.widget.drag-over').forEach(x=>{ if(x!==overWidget) x.classList.remove('drag-over'); });
+      if(overWidget && overWidget.dataset.id !== touchDragState.srcId){
+        overWidget.classList.add('drag-over');
+        touchDragState.overId = overWidget.dataset.id;
+      } else {
+        touchDragState.overId = null;
+      }
+    });
+
+    const finishTouchDrag = async ()=>{
+      if(!touchDragState) return;
+      touchDragState.srcEl.classList.remove('dragging');
+      document.querySelectorAll('.widget.drag-over').forEach(x=> x.classList.remove('drag-over'));
+      const { srcId, overId } = touchDragState;
+      touchDragState = null;
+      if(overId && overId !== srcId){
+        await reorderWidgets(srcId, overId);
+      }
+    };
+    handle.addEventListener('pointerup', finishTouchDrag);
+    handle.addEventListener('pointercancel', finishTouchDrag);
   });
 }
 
@@ -809,15 +881,21 @@ function bindCalendar(){
     const w = widgetById(id);
     const events = w.data.events || {};
     const current = (events[dateStr]||[]).join('\n');
+    const ddayLabels = collectDdayByDate()[dateStr] || [];
+    const ddayViewHtml = ddayLabels.length
+      ? `<div style="margin-bottom:8px;">${ddayLabels.map(l=>`<div>💗 ${escapeHtml(l)}</div>`).join('')}</div>` : '';
     if(!editMode){
-      if(!current){ toast('이 날은 등록된 일정이 없어요'); return; }
-      openModal(`<h3>${dateStr}</h3><div style="white-space:pre-wrap;font-size:.88rem;">${escapeHtml(current)}</div>
+      if(!current && !ddayLabels.length){ toast('이 날은 등록된 일정이 없어요'); return; }
+      openModal(`<h3>${dateStr}</h3>${ddayViewHtml}${current ? `<div style="white-space:pre-wrap;font-size:.88rem;">${escapeHtml(current)}</div>` : ''}
         <div class="modal-actions"><button class="btn ghost" id="c">닫기</button></div>`,
         m=> m.querySelector('#c').onclick = closeModal);
       return;
     }
+    const ddayEditHint = ddayLabels.length
+      ? `<p class="hint">💗 디데이 위젯에 등록된 날짜예요: ${ddayLabels.map(l=>escapeHtml(l)).join(', ')} (여기서는 수정할 수 없고, 디데이 위젯에서 바꿔주세요)</p>` : '';
     openModal(`
       <h3>${dateStr} 일정</h3>
+      ${ddayEditHint}
       <label>내용 (줄바꿈으로 여러 개 가능)</label>
       <textarea id="evText">${escapeHtml(current)}</textarea>
       <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
@@ -978,6 +1056,75 @@ function bindMusic(){
     }
     document.querySelectorAll(`[data-track^="${id}:"]`).forEach(x=> x.classList.remove('active'));
     el.classList.add('active');
+  }));
+}
+
+
+/* ----- 이미지 전용 위젯 (갤러리와 별개로 사진 한 장만 크게 보여줌) ----- */
+function bindImage(){
+  document.querySelectorAll('[data-img-edit]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id = el.dataset.imgEdit;
+    const w = widgetById(id);
+    const curIsUrl = w.data.url && !w.data.url.startsWith('data:');
+    openModal(`
+      <h3>사진 설정</h3>
+      <label>사진 올리기 (기기에서 바로 선택)</label>
+      <input type="file" id="iImgFile" accept="image/*">
+      <p class="hint">사진을 선택하면 화면에 맞게 자동으로 압축해서 저장돼요. 별도 사이트에 올릴 필요 없어요.</p>
+      <label>또는, 이미지 URL 직접 입력</label>
+      <input type="url" id="iImgUrl" placeholder="https://..." value="${curIsUrl ? w.data.url : ''}">
+      <p class="hint">위에서 사진을 선택하면 이 URL 입력은 무시돼요.</p>
+      ${w.data.url ? `<button class="btn small ghost" id="iImgClear" type="button">사진 제거</button>` : ''}
+      <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
+    `, m=>{
+      let cleared = false;
+      m.querySelector('#c').onclick = closeModal;
+      const clearBtn = m.querySelector('#iImgClear');
+      if(clearBtn) clearBtn.onclick = ()=>{
+        cleared = true;
+        m.querySelector('#iImgUrl').value = '';
+        m.querySelector('#iImgFile').value = '';
+        toast('저장을 누르면 사진이 제거돼요');
+      };
+      m.querySelector('#s').onclick = async ()=>{
+        const saveBtn = m.querySelector('#s');
+        const file = m.querySelector('#iImgFile').files[0];
+        let url = m.querySelector('#iImgUrl').value.trim();
+        if(file){
+          saveBtn.disabled = true;
+          saveBtn.textContent = '사진 처리 중…';
+          try{
+            url = await compressImageFile(file, 1600, 700000);
+          }catch(err){
+            toast(err.message || '이미지를 처리하지 못했어요');
+            saveBtn.disabled = false;
+            saveBtn.textContent = '저장';
+            return;
+          }
+        } else if(!url && !cleared){
+          url = w.data.url || '';
+        }
+        try{
+          await updateWidget(id, {'data.url': url});
+        }catch(err){
+          toast('저장하지 못했어요. 사진 용량이 너무 크면 URL 방식을 이용해주세요.');
+          saveBtn.disabled = false;
+          saveBtn.textContent = '저장';
+          return;
+        }
+        closeModal();
+      };
+    });
+  }));
+  document.querySelectorAll('[data-img-view]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id = el.dataset.imgView;
+    const w = widgetById(id);
+    openModal(`
+      <img src="${escapeHtml(w.data.url)}" style="width:100%;border-radius:10px;">
+      <div class="modal-actions"><button class="btn ghost" id="c">닫기</button></div>
+    `, m=> m.querySelector('#c').onclick = closeModal);
   }));
 }
 
