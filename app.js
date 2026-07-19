@@ -13,6 +13,15 @@ const lockBadge = document.getElementById('lockBadge');
 const siteNameEl = document.getElementById('siteName');
 const modalRoot = document.getElementById('modalRoot');
 
+/* ---------------- 설정 미완료 안내 ---------------- */
+
+if (typeof FIREBASE_NOT_CONFIGURED !== 'undefined' && FIREBASE_NOT_CONFIGURED) {
+  const banner = document.createElement('div');
+  banner.style.cssText = 'background:#f4d9d9;color:#7a2b2b;padding:12px 20px;font-size:.85rem;text-align:center;position:sticky;top:0;z-index:999;';
+  banner.innerHTML = '⚠️ 아직 firebase-config.js에 실제 Firebase 값을 넣지 않았어요. 설정가이드.md의 ①②단계를 먼저 완료해주세요. (지금은 저장이 되지 않아요)';
+  document.body.prepend(banner);
+}
+
 /* ---------------- 공통 유틸 ---------------- */
 
 function toast(msg){
@@ -43,6 +52,23 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+async function uploadFile(file, folder){
+  if(file.size > 20 * 1024 * 1024){
+    toast('파일이 너무 커요 (20MB 이하로 올려주세요)');
+    return null;
+  }
+  try{
+    const path = `${folder}/${Date.now()}_${file.name}`;
+    const ref = storage.ref().child(path);
+    await ref.put(file);
+    return await ref.getDownloadURL();
+  }catch(err){
+    console.error(err);
+    toast('업로드에 실패했어요. Firebase Storage 설정을 확인해주세요.');
+    return null;
+  }
+}
+
 function pressAnim(el){
   el.classList.add('pressed');
   setTimeout(()=> el.classList.remove('pressed'), 160);
@@ -67,7 +93,14 @@ lockBtn.addEventListener('click', async ()=>{
     renderAll();
     return;
   }
-  const lockDoc = await db.collection('meta').doc('lock').get();
+  let lockDoc;
+  try{
+    lockDoc = await db.collection('meta').doc('lock').get();
+  }catch(err){
+    console.error(err);
+    toast('저장소 연결에 실패했어요. firebase-config.js 설정을 확인해주세요.');
+    return;
+  }
   if(!lockDoc.exists){
     openModal(`
       <h3>편집 비밀번호 설정</h3>
@@ -138,6 +171,9 @@ db.collection('meta').doc('site').onSnapshot(doc=>{
 db.collection('widgets').orderBy('order').onSnapshot(snap=>{
   widgets = snap.docs.map(d=> ({ id: d.id, ...d.data() }));
   renderAll();
+}, err=>{
+  console.error(err);
+  toast('데이터를 불러오지 못했어요. Firebase 설정/규칙을 확인해주세요.');
 });
 
 async function addWidget(type){
@@ -182,13 +218,14 @@ function openSettingsModal(w){
   openModal(`
     <h3>위젯 설정</h3>
     <label>카드 배경색</label>
-    <div class="color-row"><input type="color" id="setBg" value="${w.bg?.color || '#fffdf9'}"><span>비워두면 기본값</span>
+    <div class="color-row"><input type="color" id="setBg" value="${w.bg?.color || '#2a1417'}"><span>비워두면 기본값</span>
       <button class="btn small ghost" id="clearBg">초기화</button></div>
     <label>글자색</label>
-    <div class="color-row"><input type="color" id="setText" value="${w.bg?.text || '#3a3532'}">
+    <div class="color-row"><input type="color" id="setText" value="${w.bg?.text || '#f3e6e2'}">
       <button class="btn small ghost" id="clearText">초기화</button></div>
-    <label>배경 사진 URL (선택)</label>
-    <input type="url" id="setImg" placeholder="https://..." value="${w.bg?.image || ''}">
+    <label>배경 사진 (선택)</label>
+    <input type="file" id="setImgFile" accept="image/*">
+    <input type="url" id="setImg" placeholder="또는 이미지 URL" value="${w.bg?.image || ''}" style="margin-top:6px;">
     <label>가로 크기</label>
     <select id="setSpan">
       <option value="4" ${w.span===4?'selected':''}>좁게 (1칸)</option>
@@ -202,17 +239,26 @@ function openSettingsModal(w){
       <button class="btn primary" id="saveSet">저장</button>
     </div>
   `, (m)=>{
-    m.querySelector('#clearBg').onclick = ()=> m.querySelector('#setBg').value = '#fffdf9';
-    m.querySelector('#clearText').onclick = ()=> m.querySelector('#setText').value = '#3a3532';
+    m.querySelector('#clearBg').onclick = ()=> m.querySelector('#setBg').value = '#2a1417';
+    m.querySelector('#clearText').onclick = ()=> m.querySelector('#setText').value = '#f3e6e2';
     m.querySelector('#closeSet').onclick = closeModal;
     m.querySelector('#delW').onclick = ()=>{ closeModal(); deleteWidget(w.id); };
     m.querySelector('#saveSet').onclick = async ()=>{
+      const saveBtn = m.querySelector('#saveSet');
+      const file = m.querySelector('#setImgFile').files[0];
+      let image = m.querySelector('#setImg').value.trim();
+      if(file){
+        saveBtn.textContent = '업로드 중...'; saveBtn.disabled = true;
+        const uploaded = await uploadFile(file, `widget-bg/${w.id}`);
+        if(!uploaded){ saveBtn.textContent='저장'; saveBtn.disabled=false; return; }
+        image = uploaded;
+      }
       await updateWidget(w.id, {
         span: Number(m.querySelector('#setSpan').value),
         bg: {
           color: m.querySelector('#setBg').value,
           text: m.querySelector('#setText').value,
-          image: m.querySelector('#setImg').value.trim()
+          image
         }
       });
       closeModal();
@@ -408,7 +454,24 @@ function renderAll(){
     return widgetFrame(w, r ? r(w) : '<div class="empty-hint">알 수 없는 위젯</div>');
   }).join('');
   bindEvents();
+  document.querySelectorAll('.dashboard img').forEach(img=>{
+    if(!img.complete) img.addEventListener('load', applyMasonry, {once:true});
+  });
+  requestAnimationFrame(applyMasonry);
+  setTimeout(applyMasonry, 200); // 이미지 로딩 등으로 높이가 늦게 확정되는 경우 대비
 }
+
+const MASONRY_ROW = 8;   // CSS grid-auto-rows 값과 일치해야 함
+const MASONRY_GAP = 20;  // CSS gap 값과 일치해야 함
+
+function applyMasonry(){
+  document.querySelectorAll('.widget').forEach(el=>{
+    const h = el.offsetHeight;
+    const span = Math.ceil((h + MASONRY_GAP) / (MASONRY_ROW + MASONRY_GAP));
+    el.style.gridRowEnd = `span ${span}`;
+  });
+}
+window.addEventListener('resize', ()=> applyMasonry());
 
 function bindEvents(){
   // 클릭 애니메이션
@@ -523,14 +586,24 @@ function bindGallery(){
     const id = el.dataset.galAdd;
     openModal(`
       <h3>사진 추가</h3>
+      <label>내 기기에서 사진 올리기</label>
+      <input type="file" id="imgFile" accept="image/*">
+      <p style="font-size:.75rem;color:var(--ink-soft);text-align:center;margin:8px 0;">— 또는 —</p>
       <label>이미지 URL</label><input type="url" id="imgUrl" placeholder="https://...">
-      <p style="font-size:.75rem;color:var(--ink-soft)">이미지 호스팅(이미지 올릴 수 있는 사이트) 등에 먼저 올린 뒤, 그 주소를 붙여넣어주세요.</p>
       <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
     `, m=>{
       m.querySelector('#c').onclick = closeModal;
       m.querySelector('#s').onclick = async ()=>{
-        const url = m.querySelector('#imgUrl').value.trim();
-        if(!url) return;
+        const saveBtn = m.querySelector('#s');
+        const file = m.querySelector('#imgFile').files[0];
+        let url = m.querySelector('#imgUrl').value.trim();
+        if(file){
+          saveBtn.textContent = '업로드 중...'; saveBtn.disabled = true;
+          const uploaded = await uploadFile(file, `gallery/${id}`);
+          if(!uploaded){ saveBtn.textContent='추가'; saveBtn.disabled=false; return; }
+          url = uploaded;
+        }
+        if(!url){ toast('사진을 올리거나 URL을 입력해주세요'); return; }
         const w = widgetById(id);
         await updateWidget(id, {'data.images': [...(w.data.images||[]), url]});
         closeModal();
@@ -590,18 +663,30 @@ function bindBackup(){
       <label>아이콘(이모지)</label><input type="text" id="bIcon" placeholder="📎" maxlength="2">
       <label>제목</label><input type="text" id="bTitle">
       <label>설명</label><input type="text" id="bDesc">
+      <label>내 기기에서 파일 올리기</label>
+      <input type="file" id="bFile">
+      <p style="font-size:.75rem;color:var(--ink-soft);text-align:center;margin:8px 0;">— 또는 —</p>
       <label>링크 (구글드라이브 등 자료 주소)</label><input type="url" id="bLink">
       <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
     `, m=>{
       m.querySelector('#c').onclick = closeModal;
       m.querySelector('#s').onclick = async ()=>{
+        const saveBtn = m.querySelector('#s');
         const title = m.querySelector('#bTitle').value.trim();
         if(!title){ toast('제목을 입력해주세요'); return; }
+        const file = m.querySelector('#bFile').files[0];
+        let link = m.querySelector('#bLink').value.trim();
+        if(file){
+          saveBtn.textContent = '업로드 중...'; saveBtn.disabled = true;
+          const uploaded = await uploadFile(file, `backup/${id}`);
+          if(!uploaded){ saveBtn.textContent='추가'; saveBtn.disabled=false; return; }
+          link = uploaded;
+        }
         const w = widgetById(id);
         const cards = [...(w.data.cards||[]), {
           icon: m.querySelector('#bIcon').value.trim() || '📎',
           title, desc: m.querySelector('#bDesc').value.trim(),
-          link: m.querySelector('#bLink').value.trim()
+          link
         }];
         await updateWidget(id, {'data.cards': cards});
         closeModal();
@@ -625,14 +710,26 @@ function bindMusic(){
     openModal(`
       <h3>곡 추가</h3>
       <label>곡 제목</label><input type="text" id="mTitle">
-      <label>오디오 파일 URL (mp3 등 직접재생 가능한 주소)</label><input type="url" id="mUrl">
+      <label>내 기기에서 음악 파일 올리기 (mp3 등)</label>
+      <input type="file" id="mFile" accept="audio/*">
+      <p style="font-size:.75rem;color:var(--ink-soft);text-align:center;margin:8px 0;">— 또는 —</p>
+      <label>오디오 파일 URL</label><input type="url" id="mUrl">
       <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
     `, m=>{
       m.querySelector('#c').onclick = closeModal;
       m.querySelector('#s').onclick = async ()=>{
+        const saveBtn = m.querySelector('#s');
         const title = m.querySelector('#mTitle').value.trim();
-        const url = m.querySelector('#mUrl').value.trim();
-        if(!title || !url){ toast('제목과 주소를 입력해주세요'); return; }
+        const file = m.querySelector('#mFile').files[0];
+        let url = m.querySelector('#mUrl').value.trim();
+        if(!title){ toast('제목을 입력해주세요'); return; }
+        if(file){
+          saveBtn.textContent = '업로드 중...'; saveBtn.disabled = true;
+          const uploaded = await uploadFile(file, `music/${id}`);
+          if(!uploaded){ saveBtn.textContent='추가'; saveBtn.disabled=false; return; }
+          url = uploaded;
+        }
+        if(!url){ toast('파일을 올리거나 주소를 입력해주세요'); return; }
         const w = widgetById(id);
         await updateWidget(id, {'data.tracks': [...(w.data.tracks||[]), {title, url}]});
         closeModal();
@@ -706,19 +803,30 @@ function bindCommission(){
         </div>
         <div><label>금액 (선택)</label><input type="text" id="cPrice"></div>
       </div>
-      <label>이미지 URL (선택)</label><input type="url" id="cImage">
+      <label>이미지 (선택)</label>
+      <input type="file" id="cImageFile" accept="image/*">
+      <input type="url" id="cImage" placeholder="또는 이미지 URL" style="margin-top:6px;">
       <label>링크 (선택)</label><input type="url" id="cLink">
       <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
     `, m=>{
       m.querySelector('#c').onclick = closeModal;
       m.querySelector('#s').onclick = async ()=>{
+        const saveBtn = m.querySelector('#s');
         const artist = m.querySelector('#cArtist').value.trim();
         if(!artist){ toast('작가명을 입력해주세요'); return; }
+        const file = m.querySelector('#cImageFile').files[0];
+        let image = m.querySelector('#cImage').value.trim();
+        if(file){
+          saveBtn.textContent = '업로드 중...'; saveBtn.disabled = true;
+          const uploaded = await uploadFile(file, `commission/${id}`);
+          if(!uploaded){ saveBtn.textContent='추가'; saveBtn.disabled=false; return; }
+          image = uploaded;
+        }
         const w = widgetById(id);
         const items = [...(w.data.items||[]), {
           artist, status: m.querySelector('#cStatus').value,
           price: m.querySelector('#cPrice').value.trim(),
-          image: m.querySelector('#cImage').value.trim(),
+          image,
           link: m.querySelector('#cLink').value.trim()
         }];
         await updateWidget(id, {'data.items': items});
