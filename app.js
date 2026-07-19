@@ -526,12 +526,13 @@ function openSettingsModal(w){
 function widgetFrame(w, bodyHtml){
   const hasBg = w.bg && w.bg.image;
   return `
-    <div class="widget type-${w.type} ${hasBg?'has-bg':''}" data-id="${w.id}" data-span="${w.span||4}"
+    <div class="widget type-${w.type} ${hasBg?'has-bg':''}" data-id="${w.id}" data-span="${w.span||4}" ${editMode ? 'draggable="true"' : ''}
       style="${w.bg?.color ? `background:${w.bg.color};` : ''} ${w.bg?.text ? `color:${w.bg.text};` : ''}">
       ${hasBg ? `<div class="widget-bg" style="background-image:url('${escapeHtml(w.bg.image)}')"></div>` : ''}
       <div class="widget-header">
         <div class="widget-title" contenteditable="${editMode}" data-id="${w.id}">${escapeHtml(w.title)}</div>
         <div class="widget-tools">
+          ${editMode ? `<div class="drag-handle" title="드래그해서 순서 변경">⠿</div>` : ''}
           <div class="icon-btn" data-settings="${w.id}" title="설정">⚙️</div>
         </div>
       </div>
@@ -687,10 +688,72 @@ function bindEvents(){
   });
 
   bindDday(); bindCalendar(); bindGallery(); bindEmbed();
-  bindMusic();
+  bindMusic(); bindDragReorder();
 }
 
 function widgetById(id){ return widgets.find(w=>w.id===id); }
+
+/* ----- 드래그로 위젯 순서 바꾸기 (잠금 해제 상태에서만 동작) ----- */
+let dragSrcId = null;
+
+function bindDragReorder(){
+  if(!editMode) return;
+  document.querySelectorAll('.widget').forEach(el=>{
+    el.addEventListener('dragstart', e=>{
+      // 제목 편집, 버튼, 입력창 등 내부 조작 중에는 드래그가 시작되지 않도록 함
+      if(e.target.closest('input, textarea, select, button, .icon-btn, [contenteditable="true"]')){
+        e.preventDefault();
+        return;
+      }
+      dragSrcId = el.dataset.id;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try{ e.dataTransfer.setData('text/plain', el.dataset.id); }catch(_){}
+    });
+    el.addEventListener('dragend', ()=>{
+      el.classList.remove('dragging');
+      document.querySelectorAll('.widget.drag-over').forEach(x=> x.classList.remove('drag-over'));
+      dragSrcId = null;
+    });
+    el.addEventListener('dragover', e=>{
+      if(!dragSrcId || dragSrcId === el.dataset.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.widget.drag-over').forEach(x=>{ if(x!==el) x.classList.remove('drag-over'); });
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', ()=> el.classList.remove('drag-over'));
+    el.addEventListener('drop', async e=>{
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      const targetId = el.dataset.id;
+      const srcId = dragSrcId;
+      dragSrcId = null;
+      if(!srcId || srcId === targetId) return;
+      await reorderWidgets(srcId, targetId);
+    });
+  });
+}
+
+async function reorderWidgets(srcId, targetId){
+  const list = [...widgets];
+  const fromIdx = list.findIndex(w=> w.id === srcId);
+  const toIdx = list.findIndex(w=> w.id === targetId);
+  if(fromIdx === -1 || toIdx === -1) return;
+  const [moved] = list.splice(fromIdx, 1);
+  list.splice(toIdx, 0, moved);
+  const batch = db.batch();
+  list.forEach((w, i)=>{
+    const newOrder = (i + 1) * 1000;
+    if(w.order !== newOrder) batch.update(db.collection('widgets').doc(w.id), { order: newOrder });
+  });
+  try{
+    await batch.commit();
+  }catch(err){
+    console.error(err);
+    toast('순서를 저장하지 못했어요');
+  }
+}
 
 /* ----- 디데이 ----- */
 function bindDday(){
