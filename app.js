@@ -778,16 +778,47 @@ function bindGallery(){
     const id = el.dataset.galAdd;
     openModal(`
       <h3>사진 추가</h3>
-      <label>이미지 URL</label><input type="url" id="imgUrl" placeholder="https://...">
-      <p style="font-size:.75rem;color:var(--ink-soft)">imgbb.com, imgur.com 등 무료 이미지 호스팅 사이트에 먼저 올린 뒤, 그 "직접 링크" 주소를 붙여넣어주세요.</p>
+      <label>사진 올리기 (기기에서 여러 장 선택 가능)</label>
+      <input type="file" id="galFile" accept="image/*" multiple>
+      <p class="hint">사진을 선택하면 화면에 맞게 자동으로 압축해서 갤러리에 바로 추가돼요. 별도 사이트에 올릴 필요 없어요. (한 위젯에 사진을 아주 많이/고화질로 올리면 저장이 안 될 수 있어요 — 그럴 땐 아래 URL 방식을 대신 써주세요)</p>
+      <label>또는, 이미지 URL 직접 입력</label>
+      <input type="url" id="imgUrl" placeholder="https://...">
+      <p class="hint">imgbb.com, imgur.com 등 무료 이미지 호스팅 사이트에 먼저 올린 뒤, 그 "직접 링크" 주소를 붙여넣어주세요. 위에서 사진을 선택하면 이 URL 입력은 무시돼요.</p>
       <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
     `, m=>{
       m.querySelector('#c').onclick = closeModal;
       m.querySelector('#s').onclick = async ()=>{
+        const saveBtn = m.querySelector('#s');
+        const files = Array.from(m.querySelector('#galFile').files || []);
         const url = m.querySelector('#imgUrl').value.trim();
-        if(!url){ toast('URL을 입력해주세요'); return; }
         const w = widgetById(id);
-        await updateWidget(id, {'data.images': [...(w.data.images||[]), url]});
+        const newImages = [];
+        if(files.length){
+          saveBtn.disabled = true;
+          for(let i=0;i<files.length;i++){
+            saveBtn.textContent = `사진 처리 중… (${i+1}/${files.length})`;
+            try{
+              newImages.push(await compressImageFile(files[i], 1200, 260000));
+            }catch(err){
+              toast(`"${files[i].name}" 사진을 처리하지 못했어요`);
+            }
+          }
+        } else if(url){
+          newImages.push(url);
+        } else {
+          toast('사진을 선택하거나 URL을 입력해주세요');
+          return;
+        }
+        if(newImages.length){
+          try{
+            await updateWidget(id, {'data.images': [...(w.data.images||[]), ...newImages]});
+          }catch(err){
+            toast('저장하지 못했어요. 사진 용량이 너무 크면 URL 방식을 이용해주세요.');
+            saveBtn.disabled = false;
+            saveBtn.textContent = '추가';
+            return;
+          }
+        }
         closeModal();
       };
     });
