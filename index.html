@@ -3,38 +3,70 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>우리의 갠홈</title>
+<title>노은</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- 배너: 위젯이 아니라 항상 최상단에 고정되는 요소예요 -->
+  <!-- 배너: 고정 요소 -->
   <div class="site-banner" id="siteBanner">
     <div class="site-banner-scrim"></div>
     <div class="site-banner-sub" id="bannerSub" contenteditable="false" data-placeholder="배너 부제목을 적어주세요"></div>
-    <button class="btn small banner-edit-btn" id="bannerEditBtn" style="display:none;">배너 사진/문구 편집</button>
+    <button class="btn small banner-edit-btn" id="bannerEditBtn" style="display:none;">배너 이미지 변경</button>
   </div>
 
   <div class="site-topbar">
-    <div class="site-name" id="siteName" contenteditable="false">우리의 갠홈</div>
+    <div class="site-name" id="siteName" contenteditable="false">노은</div>
     <div class="topbar-actions">
       <span class="lock-badge" id="lockBadge">🔒 보기 전용</span>
-      <button class="btn small" id="globalStyleBtn">🎨 전체 스타일</button>
+      <button class="btn small" id="globalStyleBtn">🎨 테마 편집</button>
       <button class="btn small" id="lockBtn">잠금 해제</button>
     </div>
   </div>
 
-  <div class="dashboard" id="dashboard">
-    <!-- 위젯이 JS로 렌더링됩니다 -->
-  </div>
+  <!-- 고정 레이아웃: 위젯을 추가/삭제하는 게 아니라, 정해진 8개 영역이 항상 이 구성대로 보여요 -->
+  <div class="board">
 
-  <div class="add-widget-bar" id="addWidgetBar" style="display:none;">
-    <span style="align-self:center;font-size:.8rem;color:var(--ink-soft);">위젯 추가</span>
-    <button class="btn small" data-add="dday">디데이</button>
-    <button class="btn small" data-add="calendar">캘린더</button>
-    <button class="btn small" data-add="gallery">갤러리</button>
-    <button class="btn small" data-add="embed">외부링크 임베드</button>
-    <button class="btn small" data-add="music">음악 플레이어</button>
+    <div class="row row-1">
+      <div class="w-card w-images" id="cardImages"></div>
+      <div class="row-1-right">
+        <div class="w-card w-music" id="cardMusic"></div>
+        <div class="w-card w-dday" id="cardDday">
+          <div class="w-title" id="ddayTitle" contenteditable="false">D-Day</div>
+          <div class="w-body scroll" id="ddayBody"></div>
+          <div class="w-edit-row" id="ddayAddWrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row row-2">
+      <div class="w-card w-guestbook" id="cardGuestbook">
+        <div class="w-title" id="guestbookTitle" contenteditable="false">방명록</div>
+        <div class="w-body scroll" id="guestbookBody"></div>
+        <div class="gb-form" id="guestbookForm">
+          <input type="text" id="gbName" placeholder="이름">
+          <textarea id="gbMsg" placeholder="메시지를 남겨주세요"></textarea>
+          <button class="btn small primary" id="gbSubmit">남기기</button>
+        </div>
+      </div>
+      <div class="w-card w-calendar" id="cardCalendar"></div>
+    </div>
+
+    <div class="row row-3">
+      <div class="w-card w-gallery" id="cardGallery"></div>
+    </div>
+
+    <div class="row row-4">
+      <div class="w-card w-sessions" id="cardSessions">
+        <div class="session-grid" id="sessionGrid"></div>
+        <div class="w-edit-row" id="sessionAddWrap"></div>
+      </div>
+      <div class="w-card w-checklist" id="cardChecklist">
+        <div class="checklist" id="checklistBody"></div>
+        <div class="check-add-row" id="checklistAddWrap" style="display:none;"></div>
+      </div>
+    </div>
+
   </div>
 
   <div id="modalRoot"></div>
