@@ -58,7 +58,10 @@ body{
   background-color: var(--paper);
   background-image:
     radial-gradient(var(--dot) 1.4px, transparent 1.4px),
-    linear-gradient(160deg, #F6F2F4 0%, #EFE7EA 45%, #E7DEE2 100%);
+    linear-gradient(160deg,
+      color-mix(in srgb, var(--paper) 100%, white 25%) 0%,
+      var(--paper) 45%,
+      color-mix(in srgb, var(--paper) 100%, black 8%) 100%);
   background-size: 24px 24px, 100% 100%;
   background-attachment: fixed, fixed;
   min-height: 100vh;
