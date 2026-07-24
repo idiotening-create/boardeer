@@ -351,6 +351,18 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
   cursor:pointer; display:flex; align-items:center; justify-content:center;
 }
 .pin-blur-btn:hover{ background: rgba(15,4,6,0.85); }
+.pin-del-btn{
+  position:absolute; top:8px; left:8px; z-index:2;
+  width:28px; height:28px; border-radius:50%; border:1px solid var(--card-border);
+  background: rgba(15,4,6,0.6); backdrop-filter: blur(6px); color:#ff8f9e; font-size:.75rem;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.pin-del-btn:hover{ background: rgba(196,66,95,0.55); color:#fff; }
+.pin-item-dense .pin-del-btn{ width:20px; height:20px; font-size:.6rem; top:4px; left:4px; }
+/* 드래그로 순서 바꾸기 */
+.pin-item[draggable="true"], .pin-item-dense[draggable="true"]{ cursor: grab; }
+.pin-item.dragging, .pin-item-dense.dragging{ opacity:.4; cursor: grabbing; }
+.pin-item.drag-over, .pin-item-dense.drag-over{ outline: 2px dashed var(--rose); outline-offset: 2px; }
 @media (max-width: 900px){ .pin-grid{ column-count:2; } }
 @media (max-width: 600px){ .pin-grid{ column-count:1; } }
 @media (max-width: 600px){ .doc-list{ grid-template-columns: 1fr; } }
