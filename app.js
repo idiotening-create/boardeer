@@ -1138,9 +1138,11 @@ function openGalleryAddModal(){
 
 docRef('gallery').onSnapshot(doc=>{ galleryData = doc.exists ? doc.data() : {items:[]}; renderGallery(); });
 
-/* ---------------- 6-2. 갤러리 2번째 (기존 갤러리 바로 아래 — 완전히 독립된 두 번째 갤러리) ---------------- */
+/* ---------------- 6-2. 갤러리 2번째 (기존 갤러리 바로 아래 — 완전히 독립된 두 번째 갤러리)
+   접었다 펼치기 가능(기본은 접힘), 펼치면 빽빽한 정사각형 그리드로 세로 스크롤 ---------------- */
 
 let gallery2Data = { items: [] };
+let gallery2Collapsed = true;
 
 function renderGallery2(){
   const box = document.getElementById('cardGallery2');
@@ -1148,22 +1150,31 @@ function renderGallery2(){
   const items = (gallery2Data.items || []).map(normalizeGalleryItem);
   const order = items.map((it,i)=>({...it,i})).reverse();
   box.innerHTML = `
-    <div class="pin-grid">
+    <button class="gallery-toggle-btn" id="gallery2ToggleBtn">
+      <span>${gallery2Collapsed ? '펼쳐보기' : '접기'}${items.length ? ` (${items.length})` : ''}</span>
+      <span class="gallery-toggle-arrow ${gallery2Collapsed ? '' : 'open'}">⌄</span>
+    </button>
+    <div class="pin-grid-dense" style="${gallery2Collapsed ? 'display:none;' : ''}">
       ${order.map(({url,blur,i})=> `
-        <div class="pin-item ${blur ? 'blurred' : ''}" data-idx="${i}">
+        <div class="pin-item-dense ${blur ? 'blurred' : ''}" data-idx="${i}">
           <img src="${escapeHtml(url)}">
           ${editMode ? `<button class="pin-blur-btn" data-blur="${i}" title="${blur ? '블러 해제' : '블러 처리'}">${blur ? '🙈' : '👁'}</button>` : ''}
         </div>
       `).join('')}
+      ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
     </div>
-    ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
-    ${editMode ? `<button class="gallery-add-fab" id="galAddBtn2" title="사진 추가">＋</button>` : ''}
+    ${editMode && !gallery2Collapsed ? `<button class="gallery-add-fab" id="galAddBtn2" title="사진 추가">＋</button>` : ''}
   `;
-  box.querySelectorAll('.pin-item').forEach(el=> el.addEventListener('click', (e)=>{
+  const toggleBtn = box.querySelector('#gallery2ToggleBtn');
+  if(toggleBtn) toggleBtn.onclick = ()=>{
+    gallery2Collapsed = !gallery2Collapsed;
+    renderGallery2();
+  };
+  box.querySelectorAll('.pin-item-dense').forEach(el=> el.addEventListener('click', (e)=>{
     if(e.target.closest('[data-blur]')) return;
     openGallery2ViewModal(Number(el.dataset.idx));
   }));
-  box.querySelectorAll('.pin-item img').forEach(attachImgFallback);
+  box.querySelectorAll('.pin-item-dense img').forEach(attachImgFallback);
   box.querySelectorAll('[data-blur]').forEach(btn=> btn.addEventListener('click', async (e)=>{
     e.stopPropagation();
     const idx = Number(btn.dataset.blur);
