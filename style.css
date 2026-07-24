@@ -24,11 +24,11 @@
   font-display: swap;
 }
 
-/* 이미지 위젯(사진 슬라이드) 안의 문구 전용 폰트 — 첨부해주신 VITRO INSPIRE 사용.
-   fonts/VITRO_INSPIRE_TTF.ttf 파일을 다른 폰트와 함께 반드시 같이 업로드해야 적용돼요. */
+/* 이미지 위젯(사진 슬라이드) 안의 문구 전용 폰트 — 첨부해주신 OG 르네상스 비밀 사용.
+   fonts/OG_르네상스_비밀.ttf 파일을 다른 폰트와 함께 반드시 같이 업로드해야 적용돼요. */
 @font-face{
-  font-family:'VITRO INSPIRE';
-  src: url('./fonts/VITRO_INSPIRE_TTF.ttf') format('truetype');
+  font-family:'OG 르네상스 비밀';
+  src: url('./fonts/OG_르네상스_비밀.ttf') format('truetype');
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -158,14 +158,15 @@ body::before{
   position: relative; z-index: 1;
 }
 .row{ display:grid; gap:20px; }
-.row-strip{ grid-template-columns: 1fr 1fr 1fr; }
-.row-strip > .w-card{ height: 360px; min-height:0; } /* 음악/디데이/문서를 같은 높이로 나란히 */
+.row-strip{ grid-template-columns: 2fr 1fr; align-items: stretch; }
+.row-strip > .w-card.w-docs{ min-height: 420px; }
+.row-strip-right{ display:grid; grid-template-rows: 1.6fr 1fr; gap:20px; }
+.row-strip-right > .w-card{ min-height:0; }
 .row-2{ grid-template-columns: 1fr 2fr; }
 .row-4{ grid-template-columns: 2fr 1fr; }
 
 @media (max-width: 900px){
   .row-2, .row-4, .row-strip{ grid-template-columns: 1fr; }
-  .row-strip > .w-card{ height: auto; }
 }
 
 /* ---------- 위젯 카드 공통 — 배경이 은은하게 비치는 반투명 유리 ---------- */
@@ -204,7 +205,7 @@ body::before{
 }
 .slide-caption{
   position:absolute; left:20px; right:20px; bottom:20px; z-index:2;
-  font-family: 'VITRO INSPIRE', var(--font-body); font-weight:800; font-size: clamp(1.3rem, 3vw, 2.1rem);
+  font-family: 'OG 르네상스 비밀', var(--font-body); font-weight:800; font-size: clamp(1.3rem, 3vw, 2.1rem);
   line-height:1.15; letter-spacing:-0.01em; color:#fff;
   text-shadow: 0 6px 26px rgba(0,0,0,0.6), 0 1px 4px rgba(0,0,0,0.7);
   pointer-events:none;
