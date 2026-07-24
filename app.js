@@ -1099,6 +1099,7 @@ docRef('gallery').onSnapshot(doc=>{ galleryData = doc.exists ? doc.data() : {ite
 /* ---------------- 6-1. 문서 정리 (갤러리와 세션카드 사이) ---------------- */
 
 let docsData = { cards: [] };
+let docOptionsData = { options: [] };
 const DOC_FILE_MAX_BYTES = 650000; // 이 크기까지는 카드 문서 안에 바로 저장(가장 빠름)
 const DOC_FILE_CHUNKED_MAX_BYTES = 8 * 1024 * 1024; // 이보다 크면 여러 문서로 나눠 저장(파이어스토리지 없이 8MB까지)
 
@@ -1110,6 +1111,7 @@ function renderDocs(){
       <span class="doc-icon">${escapeHtml(c.icon || '📄')}</span>
       <div class="doc-main">
         <div class="doc-title">${escapeHtml(c.title)}</div>
+        ${c.opt ? `<div class="doc-opt">${escapeHtml(c.opt)}</div>` : ''}
         ${c.desc ? `<div class="doc-desc">${escapeHtml(c.desc)}</div>` : ''}
       </div>
       ${c.chunked ? `<a class="doc-open" href="#" data-open="${i}">열기 ↗</a>` : (c.link ? `<a class="doc-open" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">열기 ↗</a>` : '')}
@@ -1142,9 +1144,11 @@ function renderDocs(){
   }));
 
   const wrap = document.getElementById('docAddWrap');
-  wrap.innerHTML = editMode ? `<button class="btn small doc-add" id="docAddBtn">+ 문서 추가</button>` : '';
+  wrap.innerHTML = editMode ? `<div class="doc-add-row"><button class="btn small doc-add" id="docAddBtn">+ 문서 추가</button><button class="btn small ghost" id="docOptsBtn">⚙ 옵션 관리</button></div>` : '';
   const addBtn = document.getElementById('docAddBtn');
   if(addBtn) addBtn.onclick = openDocAddModal;
+  const optsBtn = document.getElementById('docOptsBtn');
+  if(optsBtn) optsBtn.onclick = openDocOptionsModal;
 }
 
 function openDocAddModal(){
@@ -1153,6 +1157,12 @@ function openDocAddModal(){
     <label>아이콘(이모지, 선택)</label><input type="text" id="dcIcon" placeholder="📄" maxlength="2">
     <label>제목</label><input type="text" id="dcTitle" placeholder="예: 설정집, 규칙 정리">
     <label>설명 (선택)</label><input type="text" id="dcDesc" placeholder="한 줄 설명">
+    <label>옵션 (부제, 선택)</label>
+    <select id="dcOpt">
+      <option value="">없음</option>
+      ${(docOptionsData.options||[]).map(o=> `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('')}
+    </select>
+    <p class="hint">옵션 목록은 아래쪽 "⚙ 옵션 관리"에서 직접 추가/수정할 수 있어요.</p>
     <div class="radio-row">
       <label><input type="radio" name="doc-src" value="link" checked> 링크로 연결</label>
       <label><input type="radio" name="doc-src" value="file"> 파일 올리기</label>
@@ -1202,7 +1212,7 @@ function openDocAddModal(){
           }
         }
       }
-      const newCard = { icon, title, desc, link };
+      const newCard = { icon, title, desc, opt, link };
       if(chunkInfo){ newCard.chunked = true; newCard.fileId = chunkInfo.fileId; newCard.chunkTotal = chunkInfo.total; }
       const updatedCards = [...(docsData.cards||[]), newCard];
       try{
@@ -1220,6 +1230,60 @@ function openDocAddModal(){
 }
 
 docRef('documents').onSnapshot(doc=>{ docsData = doc.exists ? doc.data() : {cards:[]}; renderDocs(); });
+docRef('docOptions').onSnapshot(doc=>{ docOptionsData = doc.exists ? doc.data() : {options:[]}; });
+
+function openDocOptionsModal(){
+  let workingOptions = [...(docOptionsData.options||[])];
+  openModal(`
+    <h3>문서 옵션(부제) 관리</h3>
+    <p class="hint">여기서 만든 옵션은 문서 추가/수정 시 부제처럼 고를 수 있어요.</p>
+    <div class="opt-list" id="optList"></div>
+    <div class="w-edit-row" style="display:flex;gap:6px;">
+      <input type="text" id="optNew" placeholder="새 옵션 (예: 설정집)">
+      <button class="btn small" id="optAddBtn">+ 추가</button>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
+  `, m=>{
+    const listEl = m.querySelector('#optList');
+    const draw = ()=>{
+      listEl.innerHTML = workingOptions.map((opt,i)=> `
+        <div class="opt-row" data-idx="${i}">
+          <input type="text" class="opt-input" value="${escapeHtml(opt)}">
+          <button class="btn small danger" data-del="${i}">✕</button>
+        </div>
+      `).join('') || `<div class="w-empty">등록된 옵션이 없어요</div>`;
+      listEl.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', ()=>{
+        workingOptions.splice(Number(btn.dataset.del), 1);
+        draw();
+      }));
+    };
+    draw();
+    m.querySelector('#optAddBtn').onclick = ()=>{
+      const input = m.querySelector('#optNew');
+      const val = input.value.trim();
+      if(!val) return;
+      workingOptions.push(val);
+      input.value = '';
+      draw();
+    };
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#s').onclick = async ()=>{
+      const saveBtn = m.querySelector('#s');
+      const options = Array.from(listEl.querySelectorAll('.opt-input')).map(inp=> inp.value.trim()).filter(Boolean);
+      saveBtn.disabled = true; saveBtn.textContent = '저장 중…';
+      try{
+        await docRef('docOptions').set({ options }, {merge:true});
+      }catch(err){
+        toast('저장하지 못했어요');
+        saveBtn.disabled = false; saveBtn.textContent = '저장';
+        return;
+      }
+      docOptionsData = { options };
+      renderDocs();
+      closeModal();
+    };
+  });
+}
 
 function openDocEditModal(idx){
   const c = docsData.cards[idx];
@@ -1229,6 +1293,11 @@ function openDocEditModal(idx){
     <label>아이콘(이모지, 선택)</label><input type="text" id="dcIcon" placeholder="📄" maxlength="2" value="${escapeHtml(c.icon||'')}">
     <label>제목</label><input type="text" id="dcTitle" value="${escapeHtml(c.title||'')}">
     <label>설명 (선택)</label><input type="text" id="dcDesc" value="${escapeHtml(c.desc||'')}">
+    <label>옵션 (부제, 선택)</label>
+    <select id="dcOptE">
+      <option value="" ${!c.opt?'selected':''}>없음</option>
+      ${(docOptionsData.options||[]).map(o=> `<option value="${escapeHtml(o)}" ${o===c.opt?'selected':''}>${escapeHtml(o)}</option>`).join('')}
+    </select>
     <p class="hint">현재 연결: ${currentDesc}. 그대로 두거나 아래에서 바꿀 수 있어요.</p>
     <div class="radio-row">
       <label><input type="radio" name="doc-src-e" value="keep" checked> 그대로 유지</label>
@@ -1255,9 +1324,10 @@ function openDocEditModal(idx){
       const title = m.querySelector('#dcTitle').value.trim();
       const desc = m.querySelector('#dcDesc').value.trim();
       const icon = m.querySelector('#dcIcon').value.trim();
+      const opt = m.querySelector('#dcOptE').value;
       if(!title){ toast('제목을 입력해주세요'); return; }
       const mode = m.querySelector('input[name="doc-src-e"]:checked').value;
-      const updated = { icon, title, desc, link: c.link || '' };
+      const updated = { icon, title, desc, opt, link: c.link || '' };
       if(c.chunked){ updated.chunked = true; updated.fileId = c.fileId; updated.chunkTotal = c.chunkTotal; }
       let oldChunkToDelete = null;
 
