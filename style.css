@@ -363,6 +363,10 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 .pin-item[draggable="true"], .pin-item-dense[draggable="true"]{ cursor: grab; }
 .pin-item.dragging, .pin-item-dense.dragging{ opacity:.4; cursor: grabbing; }
 .pin-item.drag-over, .pin-item-dense.drag-over{ outline: 2px dashed var(--rose); outline-offset: 2px; }
+.pin-item.pin-loading, .pin-item-dense.pin-loading{
+  display:flex; align-items:center; justify-content:center;
+  background: var(--card-bg2); color: var(--ink-soft); font-size:.72rem; text-align:center; padding:8px;
+}
 @media (max-width: 900px){ .pin-grid{ column-count:2; } }
 @media (max-width: 600px){ .pin-grid{ column-count:1; } }
 @media (max-width: 600px){ .doc-list{ grid-template-columns: 1fr; } }
