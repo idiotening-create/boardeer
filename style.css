@@ -275,6 +275,7 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 .dday-count{
   font-family: var(--font-display); font-weight:800; letter-spacing:-0.02em;
   font-size: clamp(2.6rem, 24cqw, 6.5rem); line-height:0.95; color: var(--rose);
+  text-align: right;
 }
 .dday-item .icon-btn{
   position:absolute; top:9px; right:0; width:22px; height:22px; font-size:.6rem;
@@ -353,6 +354,37 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 @media (max-width: 900px){ .pin-grid{ column-count:2; } }
 @media (max-width: 600px){ .pin-grid{ column-count:1; } }
 @media (max-width: 600px){ .doc-list{ grid-template-columns: 1fr; } }
+
+/* ---------- 갤러리 2번째: 접기/펼치기 + 빽빽한 정사각형 그리드 ---------- */
+.gallery-toggle-btn{
+  display:flex; align-items:center; justify-content:space-between; width:100%;
+  background:none; border:none; cursor:pointer; padding:2px 2px 12px;
+  font-family: var(--font-display); font-size:.92rem; color:var(--ink); font-weight:600;
+}
+.gallery-toggle-btn:hover{ color: var(--rose); }
+.gallery-toggle-btn .gallery-toggle-arrow{ transition: transform .2s ease; color:var(--ink-soft); font-size:1rem; }
+.gallery-toggle-btn .gallery-toggle-arrow.open{ transform: rotate(180deg); }
+.pin-grid-dense{
+  display:grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap:4px; max-height:560px; overflow-y:auto; padding-right:4px;
+}
+.pin-grid-dense::-webkit-scrollbar{ width:5px; }
+.pin-grid-dense::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius:4px; }
+.pin-item-dense{
+  aspect-ratio: 1/1; border-radius:8px; overflow:hidden; cursor:pointer; position:relative;
+  border:1px solid var(--card-border);
+}
+.pin-item-dense img{ width:100%; height:100%; object-fit:cover; display:block; transition: transform .2s ease, filter .2s ease; }
+.pin-item-dense:hover img{ transform: scale(1.06); }
+.pin-item-dense.blurred img{ filter: blur(14px) saturate(1.1); transform: scale(1.15); }
+.pin-item-dense.blurred::after{
+  content:"👁"; position:absolute; inset:0; z-index:1;
+  display:flex; align-items:center; justify-content:center;
+  font-size:1rem; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.6);
+  background: rgba(0,0,0,0.12); pointer-events:none;
+}
+.pin-item-dense .pin-blur-btn{ width:20px; height:20px; font-size:.6rem; top:4px; right:4px; }
+@media (max-width: 600px){ .pin-grid-dense{ grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); } }
 .gallery-add-fab{
   position:absolute; right:26px; bottom:26px; width:44px; height:44px; border-radius:50%;
   background: var(--rose-solid); color:#fff; border:none; font-size:1.2rem; box-shadow: var(--shadow); cursor:pointer;
