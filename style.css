@@ -311,7 +311,7 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 .w-gallery{ padding-bottom:20px; }
 .pin-grid{
   column-count: 3; column-gap: 12px;
-  max-height: 700px; overflow-y: auto; padding-right: 6px;
+  max-height: 600px; overflow-y: auto; padding-right: 6px;
 }
 .pin-grid::-webkit-scrollbar{ width:5px; }
 .pin-grid::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius:4px; }
