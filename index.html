@@ -8,18 +8,21 @@
 </head>
 <body>
 
+  <!-- 홈페이지 전체 배경 이미지 레이어 (배너와 별개, 페이지 전체 뒤에 깔림) -->
+  <div class="bg-image-layer" id="bgImageLayer"></div>
+
   <!-- 배너: 제목/잠금/테마 버튼이 전부 여기 하단에 함께 있어요 (별도 제목바 없음) -->
   <div class="site-banner" id="siteBanner">
     <div class="site-banner-scrim"></div>
     <div class="banner-bottom">
       <div class="banner-bottom-left">
         <div class="site-name" id="siteName" contenteditable="false">노은</div>
-        <div class="site-banner-sub" id="bannerSub" contenteditable="false" data-placeholder="배너 부제목을 적어주세요"></div>
       </div>
       <div class="banner-bottom-right">
         <span class="lock-badge" id="lockBadge">🔒 보기 전용</span>
         <button class="btn small" id="globalStyleBtn">🎨 테마 편집</button>
-        <button class="btn small banner-edit-btn" id="bannerEditBtn" style="display:none;">배너 이미지 변경</button>
+        <button class="btn small banner-edit-btn" id="bannerEditBtn" style="display:none;">배너 이미지</button>
+        <button class="btn small bg-edit-btn" id="bgEditBtn" style="display:none;">배경 이미지</button>
         <button class="btn small" id="lockBtn">잠금 해제</button>
       </div>
     </div>

@@ -13,8 +13,9 @@ const lockBadge = document.getElementById('lockBadge');
 const siteNameEl = document.getElementById('siteName');
 const modalRoot = document.getElementById('modalRoot');
 const siteBannerEl = document.getElementById('siteBanner');
-const bannerSubEl = document.getElementById('bannerSub');
+const bgImageLayerEl = document.getElementById('bgImageLayer');
 const bannerEditBtn = document.getElementById('bannerEditBtn');
+const bgEditBtn = document.getElementById('bgEditBtn');
 const globalStyleBtn = document.getElementById('globalStyleBtn');
 
 /* ---------------- 설정 미완료 안내 ---------------- */
@@ -102,19 +103,20 @@ function attachImgFallback(imgEl){
   });
 }
 
-/* 배너는 <img>가 아니라 CSS background-image라 위 방식이 안 통해서, 미리 로드 테스트 후 적용 */
-function setBannerImageWithFallback(url){
-  if(!url) return;
+/* 배너/배경은 <img>가 아니라 CSS background-image라 위 방식이 안 통해서, 미리 로드 테스트 후 적용.
+   el에 배경으로 넣고 싶은 대상 엘리먼트를 넘김 (배너, 전체 배경 레이어 등 공용으로 사용) */
+function setElementBgImageWithFallback(el, url){
+  if(!el || !url) return;
   const m = url.match(/^(https:\/\/i\.imgur\.com\/[a-zA-Z0-9]+)\.[a-zA-Z]+$/i);
-  if(!m){ siteBannerEl.style.backgroundImage = `url('${url}')`; return; }
-  siteBannerEl.style.backgroundImage = `url('${url}')`; // 우선 낙관적으로 적용
+  if(!m){ el.style.backgroundImage = `url('${url}')`; return; }
+  el.style.backgroundImage = `url('${url}')`; // 우선 낙관적으로 적용
   const exts = ['jpg','jpeg','png','gif','webp'];
   let i = 0;
   const tryNext = ()=>{
     if(i >= exts.length) return;
     const testUrl = `${m[1]}.${exts[i]}`;
     const testImg = new Image();
-    testImg.onload = ()=>{ siteBannerEl.style.backgroundImage = `url('${testUrl}')`; };
+    testImg.onload = ()=>{ el.style.backgroundImage = `url('${testUrl}')`; };
     testImg.onerror = ()=>{ i++; tryNext(); };
     testImg.src = testUrl;
   };
@@ -171,8 +173,8 @@ function fileToBase64(file){
 function refreshLockUI(){
   document.body.classList.toggle('edit-mode', editMode);
   siteNameEl.setAttribute('contenteditable', editMode ? 'true' : 'false');
-  bannerSubEl.setAttribute('contenteditable', editMode ? 'true' : 'false');
   bannerEditBtn.style.display = editMode ? 'inline-flex' : 'none';
+  bgEditBtn.style.display = editMode ? 'inline-flex' : 'none';
   document.getElementById('checklistAddWrap').style.display = editMode ? 'flex' : 'none';
   lockBadge.textContent = editMode ? '🔓 편집 가능' : '🔒 보기 전용';
   lockBadge.classList.toggle('unlocked', editMode);
@@ -266,11 +268,6 @@ db.collection('meta').doc('site').onSnapshot(doc=>{
 
 /* ---------------- 배너 (항상 최상단 고정) ---------------- */
 
-bannerSubEl.addEventListener('blur', ()=>{
-  if(!editMode) return;
-  db.collection('meta').doc('banner').set({ subtitle: bannerSubEl.textContent.trim() }, {merge:true});
-});
-
 bannerEditBtn.addEventListener('click', async ()=>{
   const doc = await db.collection('meta').doc('banner').get();
   const cur = doc.exists ? doc.data() : {};
@@ -283,8 +280,6 @@ bannerEditBtn.addEventListener('click', async ()=>{
     <label>또는, 이미지 URL 직접 입력</label>
     <input type="url" id="bImg" placeholder="https://..." value="${curIsUrl ? cur.image : ''}">
     <p class="hint">imgbb.com, postimages.org 등에 올린 "직접 링크" 주소를 붙여넣어도 돼요. 위에서 사진을 선택하면 이 URL 입력은 무시돼요.</p>
-    <label>부제목</label>
-    <input type="text" id="bSub" value="${escapeHtml(cur.subtitle||'')}">
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
   `, m=>{
     m.querySelector('#c').onclick = closeModal;
@@ -306,10 +301,7 @@ bannerEditBtn.addEventListener('click', async ()=>{
       } else if(!image){
         image = cur.image || '';
       }
-      await db.collection('meta').doc('banner').set({
-        image,
-        subtitle: m.querySelector('#bSub').value.trim()
-      }, {merge:true});
+      await db.collection('meta').doc('banner').set({ image }, {merge:true});
       closeModal();
       toast('배너를 저장했어요');
     };
@@ -319,9 +311,66 @@ bannerEditBtn.addEventListener('click', async ()=>{
 db.collection('meta').doc('banner').onSnapshot(doc=>{
   if(!doc.exists) return;
   const d = doc.data();
-  if(d.image) setBannerImageWithFallback(d.image);
-  if(typeof d.subtitle === 'string' && document.activeElement !== bannerSubEl){
-    bannerSubEl.textContent = d.subtitle;
+  if(d.image) setElementBgImageWithFallback(siteBannerEl, d.image);
+});
+
+/* ---------------- 홈페이지 전체 배경 이미지 (배너와 별개) ---------------- */
+
+bgEditBtn.addEventListener('click', async ()=>{
+  const doc = await db.collection('meta').doc('background').get();
+  const cur = doc.exists ? doc.data() : {};
+  const curIsUrl = cur.image && !cur.image.startsWith('data:');
+  openModal(`
+    <h3>홈페이지 배경 이미지</h3>
+    <p class="hint">배너와는 별개로, 사이트 전체 뒤에 깔리는 배경이에요. 위젯들이 반투명 유리 카드라 배경이 은은하게 비쳐 보여요.</p>
+    <label>배경 사진 올리기 (기기에서 바로 선택)</label>
+    <input type="file" id="bgImgFile" accept="image/*">
+    <label>또는, 이미지 URL 직접 입력</label>
+    <input type="url" id="bgImg" placeholder="https://..." value="${curIsUrl ? cur.image : ''}">
+    <div class="modal-actions">
+      <button class="btn danger" id="rm" type="button">배경 사진 없애기</button>
+      <button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button>
+    </div>
+  `, m=>{
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#rm').onclick = async ()=>{
+      await db.collection('meta').doc('background').set({ image:'' }, {merge:true});
+      closeModal();
+      toast('배경 사진을 없앴어요');
+    };
+    m.querySelector('#s').onclick = async ()=>{
+      const saveBtn = m.querySelector('#s');
+      const file = m.querySelector('#bgImgFile').files[0];
+      let image = normalizeImageUrl(m.querySelector('#bgImg').value.trim());
+      if(file){
+        saveBtn.disabled = true;
+        saveBtn.textContent = '사진 처리 중…';
+        try{
+          image = await compressImageFile(file, 1920, 700000);
+        }catch(err){
+          toast(err.message || '이미지를 처리하지 못했어요');
+          saveBtn.disabled = false;
+          saveBtn.textContent = '저장';
+          return;
+        }
+      } else if(!image){
+        image = cur.image || '';
+      }
+      await db.collection('meta').doc('background').set({ image }, {merge:true});
+      closeModal();
+      toast('배경 이미지를 저장했어요');
+    };
+  });
+});
+
+db.collection('meta').doc('background').onSnapshot(doc=>{
+  const d = doc.exists ? doc.data() : {};
+  if(d.image){
+    setElementBgImageWithFallback(bgImageLayerEl, d.image);
+    bgImageLayerEl.classList.add('has-image');
+  } else {
+    bgImageLayerEl.style.backgroundImage = '';
+    bgImageLayerEl.classList.remove('has-image');
   }
 });
 
@@ -465,9 +514,15 @@ globalStyleBtn.addEventListener('click', async ()=>{
 let imagesData = { items: [] };
 let imgSlideIndex = 0;
 
+/* 예전 데이터(문자열 URL 배열)와 새 데이터({url, caption} 객체 배열)를 함께 지원 */
+function normalizeImageItem(it){
+  if(typeof it === 'string') return { url: it, caption: '' };
+  return { url: it.url || '', caption: it.caption || '' };
+}
+
 function renderImages(){
   const box = document.getElementById('cardImages');
-  const items = imagesData.items || [];
+  const items = (imagesData.items || []).map(normalizeImageItem);
   if(items.length === 0){
     box.innerHTML = `
       <div class="slide-empty">아직 사진이 없어요</div>
@@ -475,9 +530,12 @@ function renderImages(){
     `;
   } else {
     if(imgSlideIndex >= items.length) imgSlideIndex = 0;
+    const cur = items[imgSlideIndex];
     box.innerHTML = `
       <div class="slide-viewport" id="slideViewport">
-        <img src="${items[imgSlideIndex]}" id="slideImg" title="눌러서 크게 보기">
+        <img src="${cur.url}" id="slideImg" title="눌러서 크게 보기">
+        ${cur.caption ? `<div class="slide-caption">${escapeHtml(cur.caption).replace(/\n/g,'<br>')}</div>` : ''}
+        ${editMode ? `<button class="icon-btn slide-caption-btn" id="imgCaptionBtn" title="문구 편집">Aa</button>` : ''}
         ${editMode ? `<button class="icon-btn slide-del" id="imgDelBtn" title="이 사진 삭제">✕</button>` : ''}
         ${items.length>1 ? `<button class="slide-nav prev" id="imgPrev">‹</button><button class="slide-nav next" id="imgNext">›</button>` : ''}
       </div>
@@ -490,17 +548,20 @@ function renderImages(){
 
 function bindImages(){
   const box = document.getElementById('cardImages');
+  const items = (imagesData.items || []).map(normalizeImageItem);
   const prev = box.querySelector('#imgPrev');
   const next = box.querySelector('#imgNext');
-  if(prev) prev.onclick = ()=>{ imgSlideIndex = (imgSlideIndex - 1 + imagesData.items.length) % imagesData.items.length; renderImages(); };
-  if(next) next.onclick = ()=>{ imgSlideIndex = (imgSlideIndex + 1) % imagesData.items.length; renderImages(); };
+  if(prev) prev.onclick = ()=>{ imgSlideIndex = (imgSlideIndex - 1 + items.length) % items.length; renderImages(); };
+  if(next) next.onclick = ()=>{ imgSlideIndex = (imgSlideIndex + 1) % items.length; renderImages(); };
   box.querySelectorAll('[data-dot]').forEach(d=> d.onclick = ()=>{ imgSlideIndex = Number(d.dataset.dot); renderImages(); });
   const del = box.querySelector('#imgDelBtn');
   if(del) del.onclick = async (e)=>{
     e.stopPropagation();
-    const items = [...imagesData.items]; items.splice(imgSlideIndex,1);
-    await docRef('images').set({items}, {merge:true});
+    const arr = [...items]; arr.splice(imgSlideIndex,1);
+    await docRef('images').set({items:arr}, {merge:true});
   };
+  const capBtn = box.querySelector('#imgCaptionBtn');
+  if(capBtn) capBtn.onclick = (e)=>{ e.stopPropagation(); openImageCaptionModal(imgSlideIndex, items); };
   const addBtn = box.querySelector('#imgAddBtn');
   if(addBtn) addBtn.onclick = openImagesAddModal;
   const img = box.querySelector('#slideImg');
@@ -508,12 +569,31 @@ function bindImages(){
     attachImgFallback(img);
     img.onclick = ()=>{
       const idx = imgSlideIndex;
-      openImageLightbox(imagesData.items[idx], editMode ? async ()=>{
-        const arr = [...imagesData.items]; arr.splice(idx,1);
+      openImageLightbox(items[idx].url, editMode ? async ()=>{
+        const arr = [...items]; arr.splice(idx,1);
         await docRef('images').set({items:arr}, {merge:true});
       } : null);
     };
   }
+}
+
+function openImageCaptionModal(idx, items){
+  const cur = items[idx];
+  openModal(`
+    <h3>사진 위 문구</h3>
+    <p class="hint">사진 위에 크게 겹쳐 보이는 문구예요. 비워두면 문구 없이 사진만 보여요.</p>
+    <label>문구 (줄바꿈 가능)</label>
+    <textarea id="capText" style="min-height:80px;">${escapeHtml(cur.caption||'')}</textarea>
+    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
+  `, m=>{
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#s').onclick = async ()=>{
+      const arr = [...items];
+      arr[idx] = { url: cur.url, caption: m.querySelector('#capText').value.trim() };
+      await docRef('images').set({items:arr}, {merge:true});
+      closeModal();
+    };
+  });
 }
 
 function openImagesAddModal(){
@@ -536,17 +616,17 @@ function openImagesAddModal(){
         saveBtn.disabled = true;
         for(let i=0;i<files.length;i++){
           saveBtn.textContent = `처리 중… (${i+1}/${files.length})`;
-          try{ newItems.push(await compressImageFile(files[i], 1400, 230000)); }
+          try{ newItems.push({ url: await compressImageFile(files[i], 1400, 230000), caption:'' }); }
           catch(err){ toast(`"${files[i].name}" 처리 실패`); }
         }
       } else if(url){
-        newItems.push(url);
+        newItems.push({ url, caption:'' });
       } else {
         toast('사진을 선택하거나 URL을 입력해주세요');
         return;
       }
       try{
-        await docRef('images').set({ items: [...(imagesData.items||[]), ...newItems] }, {merge:true});
+        await docRef('images').set({ items: [...(imagesData.items||[]).map(normalizeImageItem), ...newItems] }, {merge:true});
       }catch(err){
         toast('저장하지 못했어요. 용량이 크면 URL 방식을 이용해주세요.');
         saveBtn.disabled = false; saveBtn.textContent = '추가';
