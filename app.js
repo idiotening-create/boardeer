@@ -1438,7 +1438,7 @@ docRef('gallery2').onSnapshot(doc=>{ gallery2Data = doc.exists ? doc.data() : {i
 
 /* ---------------- 6-3. 레퍼런스 갤러리 (캘린더 옆, 완전히 독립된 세 번째 갤러리)
    블러 옵션 없이 작고 촘촘한 정사각형 썸네일로만 구성 — 자료 수집/레퍼런스 모음용.
-   문서 정리 위젯처럼 사진마다 제목/설명을 붙일 수 있음(옵션) ---------------- */
+   ---------------- */
 
 function normalizeRefGalleryItem(it){
   if(typeof it === 'string') return { url: it };
