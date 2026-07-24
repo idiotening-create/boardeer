@@ -340,6 +340,7 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 .doc-row .doc-icon{ font-size:1.1rem; flex:0 0 auto; }
 .doc-row .doc-main{ flex:1; min-width:0; }
 .doc-row .doc-title{ font-weight:600; font-size:.85rem; color: var(--ink); }
+.doc-row .doc-opt{ font-size:.68rem; font-weight:600; color: var(--rose); margin-top:1px; }
 .doc-row .doc-desc{ font-size:.72rem; color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .doc-row .doc-open{ font-size:.75rem; color: var(--rose); text-decoration:none; flex:0 0 auto; }
 .doc-row .doc-del{
@@ -352,14 +353,18 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 }
 .doc-row .doc-edit:hover{ color: var(--rose); }
 .doc-add{ margin-top:10px; align-self:flex-start; }
+.doc-add-row{ display:flex; gap:8px; margin-top:10px; flex:0 0 auto; flex-wrap:wrap; }
+.opt-list{ display:flex; flex-direction:column; gap:6px; max-height:240px; overflow-y:auto; }
+.opt-row{ display:flex; gap:6px; align-items:center; }
+.opt-row input{ flex:1; }
 
 /* ---------- 자료 카드 (썸네일 이미지만 보이고, 누르면 PDF/링크로 연결 — 갤러리처럼) ---------- */
-.session-grid{ display:grid; grid-template-columns: repeat(3,1fr); gap:12px; max-height:420px; overflow-y:auto; padding-right:2px; }
+.session-grid{ display:grid; grid-template-columns: repeat(2,1fr); gap:12px; max-height:420px; overflow-y:auto; padding-right:2px; }
 .session-grid::-webkit-scrollbar{ width:5px; }
 .session-grid::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius:4px; }
 .session-card{
   position:relative; border-radius:18px; overflow:hidden; cursor:pointer;
-  border:1px solid var(--card-border); aspect-ratio: 1/1; background: var(--card-bg2);
+  border:1px solid var(--card-border); aspect-ratio: 16/9; background: var(--card-bg2);
   transition: transform .15s ease;
 }
 .session-card:hover{ transform: scale(1.03); }
