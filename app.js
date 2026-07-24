@@ -1114,7 +1114,13 @@ function renderDocs(){
         ${c.opt ? `<div class="doc-opt">${escapeHtml(c.opt)}</div>` : ''}
         ${c.desc ? `<div class="doc-desc">${escapeHtml(c.desc)}</div>` : ''}
       </div>
-      ${c.chunked ? `<a class="doc-open" href="#" data-open="${i}">열기 ↗</a>` : (c.link ? `<a class="doc-open" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">열기 ↗</a>` : '')}
+      ${c.chunked
+        ? `<a class="doc-open" href="#" data-open="${i}">열기 ↗</a>`
+        : (c.link
+            ? (c.link.startsWith('data:')
+                ? `<a class="doc-open" href="#" data-open-direct="${i}">열기 ↗</a>`
+                : `<a class="doc-open" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">열기 ↗</a>`)
+            : '')}
       ${editMode ? `<button class="doc-edit" data-edit="${i}">✎</button>` : ''}
       ${editMode ? `<button class="doc-del" data-del="${i}">✕</button>` : ''}
     </div>
@@ -1131,6 +1137,13 @@ function renderDocs(){
       openDataUrlAsBlob(base64);
     }catch(err){ toast('파일을 불러오지 못했어요'); }
     a.textContent = original;
+  }));
+
+  list.querySelectorAll('[data-open-direct]').forEach(a=> a.addEventListener('click', (e)=>{
+    e.preventDefault();
+    const idx = Number(a.dataset.openDirect);
+    const c = docsData.cards[idx];
+    if(c && c.link) openDataUrlAsBlob(c.link);
   }));
 
   list.querySelectorAll('[data-edit]').forEach(btn=> btn.addEventListener('click', ()=> openDocEditModal(Number(btn.dataset.edit))));
@@ -1408,7 +1421,8 @@ function renderSessions(){
         openDataUrlAsBlob(base64);
       }catch(err){ toast('자료를 불러오지 못했어요'); }
     } else if(card.pdf){
-      window.open(card.pdf, '_blank');
+      if(card.pdf.startsWith('data:')) openDataUrlAsBlob(card.pdf);
+      else window.open(card.pdf, '_blank');
     } else {
       toast('연결된 자료가 없어요');
     }
