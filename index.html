@@ -8,71 +8,35 @@
 </head>
 <body>
 
-  <!-- 배너: 제목/잠금/테마 버튼이 전부 여기 하단에 함께 있어요 (별도 제목바 없음) -->
+  <!-- 홈페이지 전체 배경 사진 레이어 (테마 편집에서 설정, 없으면 기본 그라데이션이 보여요) -->
+  <div class="site-bg-layer" id="siteBgLayer"></div>
+
+  <!-- 배너: 위젯이 아니라 항상 최상단에 고정되는 요소예요 -->
   <div class="site-banner" id="siteBanner">
     <div class="site-banner-scrim"></div>
-    <div class="banner-bottom">
-      <div class="banner-bottom-left">
-        <div class="site-name" id="siteName" contenteditable="false">노은</div>
-        <div class="site-banner-sub" id="bannerSub" contenteditable="false" data-placeholder="배너 부제목을 적어주세요"></div>
-      </div>
-      <div class="banner-bottom-right">
-        <span class="lock-badge" id="lockBadge">🔒 보기 전용</span>
-        <button class="btn small" id="globalStyleBtn">🎨 테마 편집</button>
-        <button class="btn small banner-edit-btn" id="bannerEditBtn" style="display:none;">배너 이미지 변경</button>
-        <button class="btn small" id="lockBtn">잠금 해제</button>
-      </div>
+    <button class="btn small banner-edit-btn" id="bannerEditBtn" style="display:none;">배너 사진 변경</button>
+  </div>
+
+  <div class="site-topbar">
+    <div class="site-name" id="siteName" contenteditable="false">노은</div>
+    <div class="topbar-actions">
+      <span class="lock-badge" id="lockBadge">🔒 보기 전용</span>
+      <button class="btn small" id="globalStyleBtn">테마 편집</button>
+      <button class="btn small" id="lockBtn">잠금 해제</button>
     </div>
   </div>
 
-  <!-- 고정 레이아웃: 정해진 영역이 항상 이 구성대로 보여요. 위젯 제목은 전부 없앰(애플 위젯 스타일) -->
-  <div class="board">
+  <div class="dashboard" id="dashboard">
+    <!-- 위젯이 JS로 렌더링됩니다 -->
+  </div>
 
-    <div class="row row-1">
-      <div class="w-card w-images" id="cardImages"></div>
-      <div class="row-1-right">
-        <div class="w-card w-music" id="cardMusic"></div>
-        <div class="w-card w-dday" id="cardDday">
-          <div class="w-body scroll" id="ddayBody"></div>
-          <div class="w-edit-row" id="ddayAddWrap"></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="row row-2">
-      <div class="w-card w-guestbook" id="cardGuestbook">
-        <div class="w-body scroll" id="guestbookBody"></div>
-        <div class="gb-form" id="guestbookForm">
-          <input type="text" id="gbName" placeholder="이름">
-          <textarea id="gbMsg" placeholder="메시지를 남겨주세요"></textarea>
-          <button class="btn small primary" id="gbSubmit">남기기</button>
-        </div>
-      </div>
-      <div class="w-card w-calendar" id="cardCalendar"></div>
-    </div>
-
-    <div class="row row-3">
-      <div class="w-card w-gallery" id="cardGallery"></div>
-    </div>
-
-    <div class="row row-docs">
-      <div class="w-card w-docs" id="cardDocs">
-        <div class="doc-list" id="docList"></div>
-        <div class="w-edit-row" id="docAddWrap"></div>
-      </div>
-    </div>
-
-    <div class="row row-4">
-      <div class="w-card w-sessions" id="cardSessions">
-        <div class="session-grid" id="sessionGrid"></div>
-        <div class="w-edit-row" id="sessionAddWrap"></div>
-      </div>
-      <div class="w-card w-checklist" id="cardChecklist">
-        <div class="checklist" id="checklistBody"></div>
-        <div class="check-add-row" id="checklistAddWrap" style="display:none;"></div>
-      </div>
-    </div>
-
+  <div class="add-widget-bar" id="addWidgetBar" style="display:none;">
+    <span style="align-self:center;font-size:.8rem;color:var(--ink-soft);">위젯 추가</span>
+    <button class="btn small" data-add="dday">디데이</button>
+    <button class="btn small" data-add="calendar">캘린더</button>
+    <button class="btn small" data-add="gallery">갤러리</button>
+    <button class="btn small" data-add="embed">외부링크 임베드</button>
+    <button class="btn small" data-add="music">음악 플레이어</button>
   </div>
 
   <div id="modalRoot"></div>
