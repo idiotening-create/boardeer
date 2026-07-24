@@ -1189,6 +1189,7 @@ function openDocAddModal(){
       const icon = m.querySelector('#dcIcon').value.trim();
       if(!title){ toast('제목을 입력해주세요'); return; }
       const isLink = m.querySelector('input[name="doc-src"]:checked').value === 'link';
+      const opt = m.querySelector('#dcOpt').value;
       let link = '';
       let chunkInfo = null;
       if(isLink){
