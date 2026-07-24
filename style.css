@@ -346,6 +346,11 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
   flex:0 0 auto; width:24px; height:24px; border-radius:50%;
   border:1px solid var(--card-border); background: rgba(255,255,255,0.06); color:#ff9aa6; font-size:.65rem;
 }
+.doc-row .doc-edit{
+  flex:0 0 auto; width:24px; height:24px; border-radius:50%;
+  border:1px solid var(--card-border); background: rgba(255,255,255,0.06); color: var(--ink-soft); font-size:.7rem;
+}
+.doc-row .doc-edit:hover{ color: var(--rose); }
 .doc-add{ margin-top:10px; align-self:flex-start; }
 
 /* ---------- 자료 카드 (썸네일 이미지만 보이고, 누르면 PDF/링크로 연결 — 갤러리처럼) ---------- */
@@ -367,6 +372,11 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
   position:absolute; top:8px; right:8px; z-index:2; width:24px; height:24px; border-radius:50%;
   border:1px solid rgba(255,255,255,0.25); background: rgba(20,10,12,0.6); backdrop-filter: blur(8px);
   color:#ff9aa6; font-size:.65rem;
+}
+.session-card .edit{
+  position:absolute; top:8px; left:8px; z-index:2; width:24px; height:24px; border-radius:50%;
+  border:1px solid rgba(255,255,255,0.25); background: rgba(20,10,12,0.6); backdrop-filter: blur(8px);
+  color:#fff; font-size:.7rem;
 }
 .session-add{ margin-top:10px; align-self:flex-start; }
 
