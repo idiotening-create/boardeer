@@ -1441,9 +1441,9 @@ docRef('gallery2').onSnapshot(doc=>{ gallery2Data = doc.exists ? doc.data() : {i
    문서 정리 위젯처럼 사진마다 제목/설명을 붙일 수 있음(옵션) ---------------- */
 
 function normalizeRefGalleryItem(it){
-  if(typeof it === 'string') return { url: it, title:'', desc:'' };
-  if(it.chunked) return { chunked:true, fileId: it.fileId, chunkTotal: it.chunkTotal, title: it.title||'', desc: it.desc||'' };
-  return { url: it.url, title: it.title||'', desc: it.desc||'' };
+  if(typeof it === 'string') return { url: it };
+  if(it.chunked) return { chunked:true, fileId: it.fileId, chunkTotal: it.chunkTotal };
+  return { url: it.url };
 }
 
 let refGalleryData = { items: [] };
@@ -1462,9 +1462,7 @@ function renderRefGallery(){
         return `
         <div class="pin-item-dense" data-idx="${i}">
           <img src="${escapeHtml(resolved)}">
-          ${it.title ? `<div class="pin-item-dense-label">${escapeHtml(it.title)}</div>` : ''}
           ${editMode ? `<button class="pin-del-btn" data-del="${i}" title="삭제">✕</button>` : ''}
-          ${editMode ? `<button class="pin-info-btn" data-info="${i}" title="제목/설명 편집">i</button>` : ''}
         </div>`;
       }).join('')}
       ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
@@ -1472,7 +1470,7 @@ function renderRefGallery(){
     ${editMode ? `<button class="gallery-add-fab" id="refGalAddBtn" title="사진 추가">＋</button>` : ''}
   `;
   box.querySelectorAll('.pin-item-dense:not(.pin-loading)').forEach(el=> el.addEventListener('click', (e)=>{
-    if(e.target.closest('[data-del], [data-info]')) return;
+    if(e.target.closest('[data-del]')) return;
     openRefGalleryViewModal(Number(el.dataset.idx));
   }));
   box.querySelectorAll('.pin-item-dense img').forEach(attachImgFallback);
@@ -1484,10 +1482,6 @@ function renderRefGallery(){
     await docRef('refgallery').set({items:arr}, {merge:true});
     deleteGalleryImageIfChunked(removed);
   }));
-  box.querySelectorAll('[data-info]').forEach(btn=> btn.addEventListener('click', (e)=>{
-    e.stopPropagation();
-    openRefGalleryMetaModal(Number(btn.dataset.info));
-  }));
   const addBtn = box.querySelector('#refGalAddBtn');
   if(addBtn) addBtn.onclick = openRefGalleryAddModal;
   bindPinDragReorder(
@@ -1497,38 +1491,12 @@ function renderRefGallery(){
   );
 }
 
-/* 문서 정리 위젯처럼, 사진 하나하나에 제목/설명을 달 수 있게 하는 편집창.
-   그리드 위 i 버튼과, 라이트박스 안 "정보 수정" 버튼 양쪽에서 모두 열 수 있음 */
-function openRefGalleryMetaModal(idx){
-  const items = (refGalleryData.items || []).map(normalizeRefGalleryItem);
-  const cur = items[idx];
-  if(!cur) return;
-  openModal(`
-    <h3>사진 정보</h3>
-    <label>제목</label>
-    <input type="text" id="rgTitle" value="${escapeHtml(cur.title||'')}" placeholder="예: 하람 겨울 코디">
-    <label>설명</label>
-    <textarea id="rgDesc" placeholder="메모, 출처 등">${escapeHtml(cur.desc||'')}</textarea>
-    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
-  `, m=>{
-    m.querySelector('#c').onclick = closeModal;
-    m.querySelector('#s').onclick = async ()=>{
-      const arr = items.slice();
-      arr[idx] = { ...arr[idx], title: m.querySelector('#rgTitle').value.trim(), desc: m.querySelector('#rgDesc').value.trim() };
-      await docRef('refgallery').set({items:arr}, {merge:true});
-      closeModal();
-    };
-  });
-}
-
 function openRefGalleryViewModal(idx){
   const items = (refGalleryData.items || []).map(normalizeRefGalleryItem);
   openImageLightbox({
     items,
     index: idx,
     resolve: resolveGalleryItemUrl,
-    meta: (item)=> ({ title: item.title, desc: item.desc }),
-    onEditMeta: (i)=>{ closeModal(); openRefGalleryMetaModal(i); },
     onDelete: editMode ? async (i)=>{
       const arr = (refGalleryData.items||[]).map(normalizeRefGalleryItem);
       const [removed] = arr.splice(i,1);
@@ -1543,7 +1511,7 @@ function openRefGalleryAddModal(){
     <h3>레퍼런스 사진 추가</h3>
     <label>사진 올리기 (기기에서 여러 장 선택 가능)</label>
     <input type="file" id="refGalFiles" accept="image/*" multiple>
-    <p class="hint">화면에 맞게 자동으로 압축해서 맨 앞에 추가돼요. 별도 사이트에 올릴 필요 없어요. 제목/설명은 추가한 뒤 각 사진의 "i" 버튼으로 따로 붙일 수 있어요.</p>
+    <p class="hint">화면에 맞게 자동으로 압축해서 맨 앞에 추가돼요. 별도 사이트에 올릴 필요 없어요.</p>
     <label>또는, 이미지 URL 직접 입력</label>
     <input type="url" id="refGalUrl" placeholder="https://...">
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
