@@ -1,21 +1,21 @@
 /* =========================================================
-   노은 — app.js
-   정해진 영역(이미지 슬라이드 · 음악 · 디데이 · 방명록 · 캘린더 · 갤러리 ·
-   문서 정리 · 세션카드 · 체크보드)이 항상 같은 구성으로 보이도록
-   각각 고정 렌더 함수로 관리함. 위젯 제목은 전부 없음(애플 위젯 스타일),
-   사이트 이름/잠금/테마 버튼은 배너 하단에 통합되어 있음.
+   자캐커플 갠홈 — app.js
    ========================================================= */
 
+let widgets = [];          // Firestore에서 동기화된 위젯 목록
 let editMode = sessionStorage.getItem('gh_edit') === '1';
+let calendarMonthState = {}; // widgetId -> {y, m}
 
+const dashboardEl = document.getElementById('dashboard');
+const addBarEl = document.getElementById('addWidgetBar');
 const lockBtn = document.getElementById('lockBtn');
 const lockBadge = document.getElementById('lockBadge');
 const siteNameEl = document.getElementById('siteName');
 const modalRoot = document.getElementById('modalRoot');
 const siteBannerEl = document.getElementById('siteBanner');
-const bannerSubEl = document.getElementById('bannerSub');
 const bannerEditBtn = document.getElementById('bannerEditBtn');
 const globalStyleBtn = document.getElementById('globalStyleBtn');
+const siteBgLayerEl = document.getElementById('siteBgLayer');
 
 /* ---------------- 설정 미완료 안내 ---------------- */
 
@@ -27,8 +27,6 @@ if (typeof FIREBASE_NOT_CONFIGURED !== 'undefined' && FIREBASE_NOT_CONFIGURED) {
 }
 
 /* ---------------- 공통 유틸 ---------------- */
-
-function docRef(name){ return db.collection('content').doc(name); }
 
 function toast(msg){
   const t = document.createElement('div');
@@ -58,67 +56,9 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36); }
-
-/* 이미지 슬라이드/갤러리에서 공통으로 쓰는 확대보기 팝업.
-   onDelete를 넘기면(편집모드일 때만) 팝업 안에 삭제 버튼도 같이 보여줌 */
-function openImageLightbox(url, onDelete){
-  openModal(`
-    <img src="${escapeHtml(url)}" style="width:100%;border-radius:10px;">
-    <div class="modal-actions">
-      ${onDelete ? `<button class="btn danger" id="del">삭제</button>` : ''}
-      <button class="btn ghost" id="c">닫기</button>
-    </div>
-  `, m=>{
-    m.querySelector('#c').onclick = closeModal;
-    if(onDelete) m.querySelector('#del').onclick = async ()=>{ await onDelete(); closeModal(); };
-    attachImgFallback(m.querySelector('img'));
-  });
-}
-
-/* imgur 공유 페이지 링크(예: imgur.com/xxxxx)는 실제 이미지 파일이 아니라 HTML 페이지라
-   <img>에 넣으면 깨짐. 직접 이미지 주소(i.imgur.com/xxxxx.jpg)로 자동 변환해줌. */
-function normalizeImageUrl(url){
-  if(!url) return url;
-  url = url.trim();
-  const m = url.match(/^https?:\/\/(?:www\.)?imgur\.com\/(?!a\/|gallery\/|t\/)([a-zA-Z0-9]+)(?:[.?#].*)?$/i);
-  if(m) return `https://i.imgur.com/${m[1]}.jpg`;
-  return url;
-}
-
-/* 확장자를 정확히 몰라도(.jpg로 변환했는데 실제로는 png/gif인 경우 등) 로딩에 실패하면
-   다른 확장자로 자동 재시도. i.imgur.com 주소에만 적용됨 */
-function attachImgFallback(imgEl){
-  if(!imgEl) return;
-  const src = imgEl.getAttribute('src') || '';
-  const m = src.match(/^(https:\/\/i\.imgur\.com\/[a-zA-Z0-9]+)\.[a-zA-Z]+$/i);
-  if(!m) return;
-  const exts = ['jpg','jpeg','png','gif','webp'];
-  let tries = 0;
-  imgEl.addEventListener('error', function handler(){
-    tries++;
-    if(tries < exts.length){ imgEl.src = `${m[1]}.${exts[tries]}`; }
-    else{ imgEl.removeEventListener('error', handler); }
-  });
-}
-
-/* 배너는 <img>가 아니라 CSS background-image라 위 방식이 안 통해서, 미리 로드 테스트 후 적용 */
-function setBannerImageWithFallback(url){
-  if(!url) return;
-  const m = url.match(/^(https:\/\/i\.imgur\.com\/[a-zA-Z0-9]+)\.[a-zA-Z]+$/i);
-  if(!m){ siteBannerEl.style.backgroundImage = `url('${url}')`; return; }
-  siteBannerEl.style.backgroundImage = `url('${url}')`; // 우선 낙관적으로 적용
-  const exts = ['jpg','jpeg','png','gif','webp'];
-  let i = 0;
-  const tryNext = ()=>{
-    if(i >= exts.length) return;
-    const testUrl = `${m[1]}.${exts[i]}`;
-    const testImg = new Image();
-    testImg.onload = ()=>{ siteBannerEl.style.backgroundImage = `url('${testUrl}')`; };
-    testImg.onerror = ()=>{ i++; tryNext(); };
-    testImg.src = testUrl;
-  };
-  tryNext();
+function pressAnim(el){
+  el.classList.add('pressed');
+  setTimeout(()=> el.classList.remove('pressed'), 160);
 }
 
 function extractYouTubeId(url){
@@ -157,31 +97,16 @@ function compressImageFile(file, maxDim=1600, maxBytes=700000){
   });
 }
 
-function fileToBase64(file){
-  return new Promise((resolve, reject)=>{
-    const reader = new FileReader();
-    reader.onload = ()=> resolve(reader.result);
-    reader.onerror = ()=> reject(new Error('파일을 읽지 못했어요'));
-    reader.readAsDataURL(file);
-  });
-}
-
 /* ---------------- 잠금 / 편집모드 ---------------- */
 
 function refreshLockUI(){
   document.body.classList.toggle('edit-mode', editMode);
+  addBarEl.style.display = editMode ? 'flex' : 'none';
   siteNameEl.setAttribute('contenteditable', editMode ? 'true' : 'false');
-  bannerSubEl.setAttribute('contenteditable', editMode ? 'true' : 'false');
   bannerEditBtn.style.display = editMode ? 'inline-flex' : 'none';
-  document.getElementById('checklistAddWrap').style.display = editMode ? 'flex' : 'none';
   lockBadge.textContent = editMode ? '🔓 편집 가능' : '🔒 보기 전용';
   lockBadge.classList.toggle('unlocked', editMode);
   lockBtn.textContent = editMode ? '잠그기' : '잠금 해제';
-}
-
-function renderAllModules(){
-  renderImages(); renderMusic(); renderDday(); renderGuestbook();
-  renderCalendar(); renderGallery(); renderDocs(); renderSessions(); renderChecklist();
 }
 
 lockBtn.addEventListener('click', async ()=>{
@@ -189,7 +114,7 @@ lockBtn.addEventListener('click', async ()=>{
     editMode = false;
     sessionStorage.removeItem('gh_edit');
     refreshLockUI();
-    renderAllModules();
+    renderAll();
     return;
   }
   let lockDoc;
@@ -223,7 +148,7 @@ lockBtn.addEventListener('click', async ()=>{
         await db.collection('meta').doc('lock').set({ passwordHash: hash });
         editMode = true;
         sessionStorage.setItem('gh_edit','1');
-        refreshLockUI(); renderAllModules(); closeModal();
+        refreshLockUI(); renderAll(); closeModal();
         toast('편집 모드가 시작됐어요');
       };
     });
@@ -244,7 +169,7 @@ lockBtn.addEventListener('click', async ()=>{
       if(hash === lockDoc.data().passwordHash){
         editMode = true;
         sessionStorage.setItem('gh_edit','1');
-        refreshLockUI(); renderAllModules(); closeModal();
+        refreshLockUI(); renderAll(); closeModal();
         toast('편집 모드로 전환됐어요');
       } else {
         toast('비밀번호가 일치하지 않아요');
@@ -258,18 +183,14 @@ lockBtn.addEventListener('click', async ()=>{
 
 siteNameEl.addEventListener('blur', ()=>{
   if(!editMode) return;
-  db.collection('meta').doc('site').set({ name: siteNameEl.textContent.trim() || '노은' }, {merge:true});
+  db.collection('meta').doc('site').set({ name: siteNameEl.textContent.trim() }, {merge:true});
 });
+
 db.collection('meta').doc('site').onSnapshot(doc=>{
-  if(doc.exists && doc.data().name && document.activeElement !== siteNameEl){ siteNameEl.textContent = doc.data().name; }
+  if(doc.exists && doc.data().name){ siteNameEl.textContent = doc.data().name; }
 });
 
-/* ---------------- 배너 (항상 최상단 고정) ---------------- */
-
-bannerSubEl.addEventListener('blur', ()=>{
-  if(!editMode) return;
-  db.collection('meta').doc('banner').set({ subtitle: bannerSubEl.textContent.trim() }, {merge:true});
-});
+/* ---------------- 배너 (항상 최상단 고정, 위젯 목록에는 없음) ---------------- */
 
 bannerEditBtn.addEventListener('click', async ()=>{
   const doc = await db.collection('meta').doc('banner').get();
@@ -283,15 +204,13 @@ bannerEditBtn.addEventListener('click', async ()=>{
     <label>또는, 이미지 URL 직접 입력</label>
     <input type="url" id="bImg" placeholder="https://..." value="${curIsUrl ? cur.image : ''}">
     <p class="hint">imgbb.com, postimages.org 등에 올린 "직접 링크" 주소를 붙여넣어도 돼요. 위에서 사진을 선택하면 이 URL 입력은 무시돼요.</p>
-    <label>부제목</label>
-    <input type="text" id="bSub" value="${escapeHtml(cur.subtitle||'')}">
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
   `, m=>{
     m.querySelector('#c').onclick = closeModal;
     m.querySelector('#s').onclick = async ()=>{
       const saveBtn = m.querySelector('#s');
       const file = m.querySelector('#bImgFile').files[0];
-      let image = normalizeImageUrl(m.querySelector('#bImg').value.trim());
+      let image = m.querySelector('#bImg').value.trim();
       if(file){
         saveBtn.disabled = true;
         saveBtn.textContent = '사진 처리 중…';
@@ -306,10 +225,7 @@ bannerEditBtn.addEventListener('click', async ()=>{
       } else if(!image){
         image = cur.image || '';
       }
-      await db.collection('meta').doc('banner').set({
-        image,
-        subtitle: m.querySelector('#bSub').value.trim()
-      }, {merge:true});
+      await db.collection('meta').doc('banner').set({ image }, {merge:true});
       closeModal();
       toast('배너를 저장했어요');
     };
@@ -319,19 +235,17 @@ bannerEditBtn.addEventListener('click', async ()=>{
 db.collection('meta').doc('banner').onSnapshot(doc=>{
   if(!doc.exists) return;
   const d = doc.data();
-  if(d.image) setBannerImageWithFallback(d.image);
-  if(typeof d.subtitle === 'string' && document.activeElement !== bannerSubEl){
-    bannerSubEl.textContent = d.subtitle;
-  }
+  if(d.image) siteBannerEl.style.backgroundImage = `url('${d.image}')`;
 });
 
-/* ---------------- 테마 편집 (전체 색/폰트 일괄 적용) ---------------- */
+/* ---------------- 전체 스타일 (모든 위젯에 일괄 적용) ---------------- */
 
 const THEME_VARS = ['--rose','--sage','--gold','--paper','--card-bg','--card-bg2','--ink'];
-const FONT_DISPLAY_OPTIONS = ['ZEN SERIF','Song Myung','Noto Serif KR','Nanum Myeongjo','Gowun Batang'];
-const FONT_BODY_OPTIONS = ['ZEN SERIF','Noto Sans KR','Gowun Dodum'];
-const CUSTOM_FONT_MAX_BYTES = 500000;
+const FONT_DISPLAY_OPTIONS = ['Inter','ZEN SERIF','Song Myung','Noto Serif KR','Nanum Myeongjo','Gowun Batang'];
+const FONT_BODY_OPTIONS = ['Inter','Noto Sans KR','ZEN SERIF','Gowun Dodum'];
+const CUSTOM_FONT_MAX_BYTES = 500000; // 폰트 파일 업로드(base64 저장) 용량 제한. 넘으면 fonts 폴더+파일명 방식을 안내함
 
+/* 업로드한 폰트 파일(base64) 또는 fonts 폴더의 파일명으로 @font-face를 동적으로 주입 */
 function injectCustomFontFace(srcDecl){
   let styleTag = document.getElementById('customFontFace');
   if(!styleTag){
@@ -344,12 +258,32 @@ function injectCustomFontFace(srcDecl){
     : '';
 }
 
+function fileToBase64(file){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result);
+    reader.onerror = ()=> reject(new Error('파일을 읽지 못했어요'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function applyTheme(theme){
   if(!theme) return;
   THEME_VARS.forEach(v=>{
     const key = v.replace('--','');
     if(theme[key]) document.documentElement.style.setProperty(v, theme[key]);
   });
+
+  // 홈페이지 전체 배경 사진 (없으면 기본 다크 그라데이션이 그대로 보임)
+  if(theme.bgImage){
+    siteBgLayerEl.style.backgroundImage = `url('${theme.bgImage}')`;
+    document.body.classList.add('has-bg-image');
+  } else {
+    siteBgLayerEl.style.backgroundImage = '';
+    document.body.classList.remove('has-bg-image');
+  }
+
+  // 커스텀 폰트(업로드했거나 fonts 폴더에 직접 올린 파일)가 있으면 제목/본문 폰트를 모두 그걸로 통일
   if(theme.customFontData){
     injectCustomFontFace(`url(${theme.customFontData}) format('truetype')`);
     document.documentElement.style.setProperty('--font-display', `'CustomUserFont', 'ZEN SERIF', serif`);
@@ -376,10 +310,19 @@ globalStyleBtn.addEventListener('click', async ()=>{
   THEME_VARS.forEach(v=> cur[v.replace('--','')] = cs.getPropertyValue(v).trim());
   const themeDoc = await db.collection('meta').doc('theme').get();
   const saved = themeDoc.exists ? themeDoc.data() : {};
+  const themeIsUrl = saved.bgImage && !saved.bgImage.startsWith('data:');
   openModal(`
     <h3>테마 편집</h3>
-    <p style="font-size:.78rem;color:var(--ink-soft)">여기서 바꾸면 사이트 전체에 한 번에 적용돼요.</p>
-    <label>메인 포인트 컬러</label>
+    <p style="font-size:.78rem;color:var(--ink-soft)">여기서 바꾸면 사이트 전체에 한 번에 적용돼요. 위젯별로 따로 지정해둔 색은 아래에서 초기화할 수 있어요.</p>
+
+    <label>홈페이지 배경 사진 (선택)</label>
+    <input type="file" id="tBgFile" accept="image/*">
+    <p class="hint">사진을 올리면 배경색 대신 사진 위에 어둡게 스크림이 깔린 배경이 돼요.</p>
+    <label>또는, 이미지 URL 직접 입력</label>
+    <input type="url" id="tBgUrl" placeholder="https://..." value="${themeIsUrl ? saved.bgImage : ''}">
+    ${saved.bgImage ? `<button class="btn small ghost" id="tBgClear" type="button" style="margin-top:6px;">배경 사진 제거</button>` : ''}
+
+    <label style="margin-top:16px;">메인 포인트 컬러</label>
     <div class="color-row"><input type="color" id="tRose" value="${cur.rose}"></div>
     <label>보조 포인트 컬러</label>
     <div class="color-row"><input type="color" id="tSage" value="${cur.sage}"></div>
@@ -406,13 +349,24 @@ globalStyleBtn.addEventListener('click', async ()=>{
       <button class="btn small ghost" id="tFontClear" type="button">커스텀 폰트 해제 (기본 ZEN SERIF로)</button>
     </div>
 
+    <label style="display:flex;align-items:center;gap:8px;margin-top:14px;">
+      <input type="checkbox" id="tReset" style="width:auto;"> 위젯별로 따로 지정한 색상 전부 초기화
+    </label>
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">전체 적용</button></div>
   `, m=>{
+    let clearedBg = false;
     m.querySelector('#c').onclick = closeModal;
     m.querySelector('#tFontClear').onclick = async ()=>{
       await db.collection('meta').doc('theme').set({ customFontData:'', customFontFile:'' }, {merge:true});
       closeModal();
       toast('커스텀 폰트를 해제했어요');
+    };
+    const bgClearBtn = m.querySelector('#tBgClear');
+    if(bgClearBtn) bgClearBtn.onclick = ()=>{
+      clearedBg = true;
+      m.querySelector('#tBgUrl').value = '';
+      m.querySelector('#tBgFile').value = '';
+      toast('전체 적용을 누르면 배경 사진이 제거돼요');
     };
     m.querySelector('#s').onclick = async ()=>{
       const saveBtn = m.querySelector('#s');
@@ -426,6 +380,23 @@ globalStyleBtn.addEventListener('click', async ()=>{
         fontDisplay: m.querySelector('#tFontDisplay').value,
         fontBody: m.querySelector('#tFontBody').value
       };
+      const bgFile = m.querySelector('#tBgFile').files[0];
+      let bgImage = m.querySelector('#tBgUrl').value.trim();
+      if(bgFile){
+        saveBtn.disabled = true;
+        saveBtn.textContent = '배경 사진 처리 중…';
+        try{
+          bgImage = await compressImageFile(bgFile, 1920, 900000);
+        }catch(err){
+          toast(err.message || '배경 사진을 처리하지 못했어요');
+          saveBtn.disabled = false;
+          saveBtn.textContent = '전체 적용';
+          return;
+        }
+      } else if(!bgImage && !clearedBg){
+        bgImage = saved.bgImage || '';
+      }
+      theme.bgImage = bgImage;
       const fontFile = m.querySelector('#tFontUpload').files[0];
       const fontFileName = m.querySelector('#tFontFileName').value.trim();
       if(fontFile){
@@ -449,199 +420,159 @@ globalStyleBtn.addEventListener('click', async ()=>{
         theme.customFontData = '';
       }
       await db.collection('meta').doc('theme').set(theme, {merge:true});
+      if(m.querySelector('#tReset').checked){
+        const batch = db.batch();
+        widgets.forEach(w=>{
+          batch.update(db.collection('widgets').doc(w.id), { bg: { color:'', text:'', image: w.bg?.image || '' } });
+        });
+        await batch.commit();
+      }
       closeModal();
-      toast('테마를 적용했어요');
+      toast('전체 스타일을 적용했어요');
     };
   });
 });
 
-/* ================================================================
-   콘텐츠 모듈 8종 — 각자 독립된 Firestore 문서(collection 'content')를
-   구독하고, 자기 영역만 렌더링함
-   ================================================================ */
+/* ---------------- Firestore 동기화 ---------------- */
 
-/* ---------------- 1. 이미지 위젯 (가로형 슬라이드) ---------------- */
+db.collection('widgets').orderBy('order').onSnapshot(snap=>{
+  widgets = snap.docs.map(d=> ({ id: d.id, ...d.data() })).filter(w=> w.type !== 'banner' && w.type !== 'commission' && w.type !== 'backup' && w.type !== 'story');
+  renderAll();
+}, err=>{
+  console.error(err);
+  toast('데이터를 불러오지 못했어요. Firebase 설정/규칙을 확인해주세요.');
+});
 
-let imagesData = { items: [] };
-let imgSlideIndex = 0;
-
-function renderImages(){
-  const box = document.getElementById('cardImages');
-  const items = imagesData.items || [];
-  if(items.length === 0){
-    box.innerHTML = `
-      <div class="slide-empty">아직 사진이 없어요</div>
-      ${editMode ? `<button class="btn small slide-add" id="imgAddBtn">+ 사진 추가</button>` : ''}
-    `;
-  } else {
-    if(imgSlideIndex >= items.length) imgSlideIndex = 0;
-    box.innerHTML = `
-      <div class="slide-viewport" id="slideViewport">
-        <img src="${items[imgSlideIndex]}" id="slideImg" title="눌러서 크게 보기">
-        ${editMode ? `<button class="icon-btn slide-del" id="imgDelBtn" title="이 사진 삭제">✕</button>` : ''}
-        ${items.length>1 ? `<button class="slide-nav prev" id="imgPrev">‹</button><button class="slide-nav next" id="imgNext">›</button>` : ''}
-      </div>
-      ${items.length>1 ? `<div class="slide-dots">${items.map((_,i)=>`<span class="dot ${i===imgSlideIndex?'active':''}" data-dot="${i}"></span>`).join('')}</div>` : ''}
-      ${editMode ? `<button class="btn small slide-add" id="imgAddBtn">+ 사진 추가</button>` : ''}
-    `;
-  }
-  bindImages();
-}
-
-function bindImages(){
-  const box = document.getElementById('cardImages');
-  const prev = box.querySelector('#imgPrev');
-  const next = box.querySelector('#imgNext');
-  if(prev) prev.onclick = ()=>{ imgSlideIndex = (imgSlideIndex - 1 + imagesData.items.length) % imagesData.items.length; renderImages(); };
-  if(next) next.onclick = ()=>{ imgSlideIndex = (imgSlideIndex + 1) % imagesData.items.length; renderImages(); };
-  box.querySelectorAll('[data-dot]').forEach(d=> d.onclick = ()=>{ imgSlideIndex = Number(d.dataset.dot); renderImages(); });
-  const del = box.querySelector('#imgDelBtn');
-  if(del) del.onclick = async (e)=>{
-    e.stopPropagation();
-    const items = [...imagesData.items]; items.splice(imgSlideIndex,1);
-    await docRef('images').set({items}, {merge:true});
+async function addWidget(type){
+  const defaults = {
+    dday:       { title:'D-Day', span:4, data:{ items:[] } },
+    calendar:   { title:'Calendar', span:8, data:{ events:{} } },
+    gallery:    { title:'Gallery', span:6, data:{ images:[] } },
+    embed:      { title:'Embed', span:6, data:{ url:'' } },
+    music:      { title:'Music', span:4, data:{ tracks:[] } },
   };
-  const addBtn = box.querySelector('#imgAddBtn');
-  if(addBtn) addBtn.onclick = openImagesAddModal;
-  const img = box.querySelector('#slideImg');
-  if(img){
-    attachImgFallback(img);
-    img.onclick = ()=>{
-      const idx = imgSlideIndex;
-      openImageLightbox(imagesData.items[idx], editMode ? async ()=>{
-        const arr = [...imagesData.items]; arr.splice(idx,1);
-        await docRef('images').set({items:arr}, {merge:true});
-      } : null);
-    };
-  }
+  const base = defaults[type];
+  if(!base) return;
+  await db.collection('widgets').add({
+    type, title: base.title, span: base.span,
+    order: Date.now(),
+    bg: { color:'', text:'', image:'' },
+    data: base.data
+  });
+  toast('위젯을 추가했어요');
 }
 
-function openImagesAddModal(){
+async function deleteWidget(id){
+  if(!confirm('이 위젯을 삭제할까요? 되돌릴 수 없어요.')) return;
+  await db.collection('widgets').doc(id).delete();
+}
+
+async function updateWidget(id, updates){
+  await db.collection('widgets').doc(id).update(updates);
+}
+
+document.querySelectorAll('[data-add]').forEach(btn=>{
+  btn.addEventListener('click', ()=> addWidget(btn.dataset.add));
+});
+
+/* ---------------- 위젯 설정 모달 (색/배경/크기/삭제) ---------------- */
+
+function openSettingsModal(w){
+  const curIsUrl = w.bg?.image && !w.bg.image.startsWith('data:');
   openModal(`
-    <h3>사진 추가</h3>
-    <label>사진 올리기 (기기에서 여러 장 선택 가능)</label>
-    <input type="file" id="imgFiles" accept="image/*" multiple>
-    <p class="hint">화면에 맞게 자동으로 압축해서 슬라이드에 바로 추가돼요. 별도 사이트에 올릴 필요 없어요.</p>
+    <h3>위젯 설정</h3>
+    <label>카드 배경색</label>
+    <div class="color-row"><input type="color" id="setBg" value="${w.bg?.color || '#1c0e12'}"><span>비워두면 기본값</span>
+      <button class="btn small ghost" id="clearBg">초기화</button></div>
+    <label>글자색</label>
+    <div class="color-row"><input type="color" id="setText" value="${w.bg?.text || '#e2ddE3'}">
+      <button class="btn small ghost" id="clearText">초기화</button></div>
+    <label>배경 사진 올리기 (기기에서 바로 선택)</label>
+    <input type="file" id="setImgFile" accept="image/*">
+    <p class="hint">사진을 선택하면 화면에 맞게 자동으로 압축해서 저장돼요. 이 위젯 카드 배경으로 바로 꾸며져요.</p>
     <label>또는, 이미지 URL 직접 입력</label>
-    <input type="url" id="imgUrl" placeholder="https://...">
-    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
-  `, m=>{
-    m.querySelector('#c').onclick = closeModal;
-    m.querySelector('#s').onclick = async ()=>{
-      const saveBtn = m.querySelector('#s');
-      const files = Array.from(m.querySelector('#imgFiles').files || []);
-      const url = normalizeImageUrl(m.querySelector('#imgUrl').value.trim());
-      const newItems = [];
-      if(files.length){
-        saveBtn.disabled = true;
-        for(let i=0;i<files.length;i++){
-          saveBtn.textContent = `처리 중… (${i+1}/${files.length})`;
-          try{ newItems.push(await compressImageFile(files[i], 1400, 230000)); }
-          catch(err){ toast(`"${files[i].name}" 처리 실패`); }
-        }
-      } else if(url){
-        newItems.push(url);
-      } else {
-        toast('사진을 선택하거나 URL을 입력해주세요');
-        return;
-      }
-      try{
-        await docRef('images').set({ items: [...(imagesData.items||[]), ...newItems] }, {merge:true});
-      }catch(err){
-        toast('저장하지 못했어요. 용량이 크면 URL 방식을 이용해주세요.');
-        saveBtn.disabled = false; saveBtn.textContent = '추가';
-        return;
-      }
-      closeModal();
-    };
-  });
-}
-
-docRef('images').onSnapshot(doc=>{ imagesData = doc.exists ? doc.data() : {items:[]}; renderImages(); });
-
-/* ---------------- 2. 음악 위젯 ---------------- */
-
-let musicData = { tracks: [] };
-
-function renderMusic(){
-  const box = document.getElementById('cardMusic');
-  const tracks = musicData.tracks || [];
-  box.innerHTML = `
-    <div class="player-tracks">
-      ${tracks.map((t,i)=>`
-        <div class="player-track" data-idx="${i}">
-          ♪ <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(t.title)}</span>
-          ${editMode ? `<button class="icon-btn" data-del="${i}" style="width:18px;height:18px;font-size:.6rem;">✕</button>` : ''}
-        </div>
-      `).join('') || `<div class="w-empty">등록된 곡이 없어요</div>`}
+    <input type="url" id="setImg" placeholder="https://..." value="${curIsUrl ? w.bg.image : ''}">
+    <p class="hint">위에서 사진을 선택하면 이 URL 입력은 무시돼요.</p>
+    ${w.bg?.image ? `<button class="btn small ghost" id="clearImg">배경 사진 제거</button>` : ''}
+    <label>가로 크기</label>
+    <select id="setSpan">
+      <option value="4" ${w.span===4?'selected':''}>좁게 (1칸)</option>
+      <option value="6" ${w.span===6?'selected':''}>보통 (1.5칸)</option>
+      <option value="8" ${w.span===8?'selected':''}>넓게 (2칸)</option>
+      <option value="12" ${w.span===12?'selected':''}>전체 폭</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn danger" id="delW">위젯 삭제</button>
+      <button class="btn ghost" id="closeSet">취소</button>
+      <button class="btn primary" id="saveSet">저장</button>
     </div>
-    <audio id="musicAudio" controls style="display:none;"></audio>
-    <div class="yt-frame" id="musicYt" style="display:none;"></div>
-    ${editMode ? `<button class="btn small music-add" id="musicAddBtn">+ 곡 추가</button>` : ''}
-  `;
-  bindMusic();
-}
-
-function bindMusic(){
-  const box = document.getElementById('cardMusic');
-  box.querySelectorAll('[data-idx]').forEach(row=>{
-    row.addEventListener('click', (e)=>{
-      if(e.target.closest('[data-del]')) return;
-      const idx = Number(row.dataset.idx);
-      playTrack(idx);
-      box.querySelectorAll('.player-track').forEach(x=>x.classList.remove('active'));
-      row.classList.add('active');
-    });
-  });
-  box.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async e=>{
-    e.stopPropagation();
-    const idx = Number(btn.dataset.del);
-    const tracks = [...musicData.tracks]; tracks.splice(idx,1);
-    await docRef('music').set({tracks}, {merge:true});
-  }));
-  const addBtn = box.querySelector('#musicAddBtn');
-  if(addBtn) addBtn.onclick = openMusicAddModal;
-}
-
-function playTrack(idx){
-  const t = musicData.tracks[idx]; if(!t) return;
-  const audioEl = document.getElementById('musicAudio');
-  const ytEl = document.getElementById('musicYt');
-  const ytId = extractYouTubeId(t.url);
-  if(ytId){
-    audioEl.pause(); audioEl.removeAttribute('src'); audioEl.style.display = 'none';
-    ytEl.style.display = 'block';
-    ytEl.innerHTML = `<iframe height="150" src="https://www.youtube.com/embed/${ytId}?autoplay=1" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen title="${escapeHtml(t.title)}"></iframe>`;
-  } else {
-    ytEl.style.display = 'none'; ytEl.innerHTML = '';
-    audioEl.style.display = 'block'; audioEl.src = t.url; audioEl.play().catch(()=>{});
-  }
-}
-
-function openMusicAddModal(){
-  openModal(`
-    <h3>곡 추가</h3>
-    <label>곡 제목</label><input type="text" id="mTitle">
-    <label>오디오 파일 URL 또는 유튜브 링크</label><input type="url" id="mUrl" placeholder="mp3 직링크 또는 https://youtu.be/...">
-    <p class="hint">유튜브 링크는 그대로 붙여넣으면 화면 안에서 바로 재생돼요. mp3는 구글드라이브 등의 직링크를 붙여넣어주세요.</p>
-    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
-  `, m=>{
-    m.querySelector('#c').onclick = closeModal;
-    m.querySelector('#s').onclick = async ()=>{
-      const title = m.querySelector('#mTitle').value.trim();
-      const url = m.querySelector('#mUrl').value.trim();
-      if(!title || !url){ toast('제목과 주소를 입력해주세요'); return; }
-      await docRef('music').set({ tracks: [...(musicData.tracks||[]), {title, url}] }, {merge:true});
+  `, (m)=>{
+    let clearedImg = false;
+    m.querySelector('#clearBg').onclick = ()=> m.querySelector('#setBg').value = '#1c0e12';
+    m.querySelector('#clearText').onclick = ()=> m.querySelector('#setText').value = '#e2ddE3';
+    m.querySelector('#closeSet').onclick = closeModal;
+    m.querySelector('#delW').onclick = ()=>{ closeModal(); deleteWidget(w.id); };
+    const clearImgBtn = m.querySelector('#clearImg');
+    if(clearImgBtn) clearImgBtn.onclick = ()=>{
+      clearedImg = true;
+      m.querySelector('#setImg').value = '';
+      m.querySelector('#setImgFile').value = '';
+      toast('저장을 누르면 배경 사진이 제거돼요');
+    };
+    m.querySelector('#saveSet').onclick = async ()=>{
+      const saveBtn = m.querySelector('#saveSet');
+      const file = m.querySelector('#setImgFile').files[0];
+      let image = m.querySelector('#setImg').value.trim();
+      if(file){
+        saveBtn.disabled = true;
+        saveBtn.textContent = '사진 처리 중…';
+        try{
+          image = await compressImageFile(file);
+        }catch(err){
+          toast(err.message || '이미지를 처리하지 못했어요');
+          saveBtn.disabled = false;
+          saveBtn.textContent = '저장';
+          return;
+        }
+      } else if(!image && !clearedImg){
+        image = w.bg?.image || '';
+      }
+      await updateWidget(w.id, {
+        span: Number(m.querySelector('#setSpan').value),
+        bg: {
+          color: m.querySelector('#setBg').value,
+          text: m.querySelector('#setText').value,
+          image
+        }
+      });
       closeModal();
     };
   });
 }
 
-docRef('music').onSnapshot(doc=>{ musicData = doc.exists ? doc.data() : {tracks:[]}; renderMusic(); });
+/* ---------------- 위젯 프레임 렌더 ---------------- */
 
-/* ---------------- 3. 디데이 ---------------- */
+function widgetFrame(w, bodyHtml){
+  const hasBg = w.bg && w.bg.image;
+  return `
+    <div class="widget type-${w.type} ${hasBg?'has-bg':''}" data-id="${w.id}" data-span="${w.span||4}" ${editMode ? 'draggable="true"' : ''}
+      style="${w.bg?.color ? `background:${w.bg.color};` : ''} ${w.bg?.text ? `color:${w.bg.text};` : ''}">
+      ${hasBg ? `<div class="widget-bg" style="background-image:url('${escapeHtml(w.bg.image)}')"></div>` : ''}
+      <div class="widget-header">
+        <div class="widget-title" contenteditable="${editMode}" data-id="${w.id}">${escapeHtml(w.title)}</div>
+        <div class="widget-tools">
+          ${editMode ? `<div class="drag-handle" title="드래그해서 순서 변경">⠿</div>` : ''}
+          <div class="icon-btn" data-settings="${w.id}" title="설정">⚙️</div>
+        </div>
+      </div>
+      <div class="widget-body" data-body="${w.id}">
+        ${bodyHtml}
+      </div>
+    </div>
+  `;
+}
 
-let ddayData = { items: [] };
+/* ---------------- 타입별 렌더러 ---------------- */
 
 function ddayDiffText(dateStr){
   const today = new Date(); today.setHours(0,0,0,0);
@@ -651,507 +582,432 @@ function ddayDiffText(dateStr){
   return diff > 0 ? `D-${diff}` : `D+${Math.abs(diff)}`;
 }
 
-function renderDday(){
-  const items = (ddayData.items || []).map((it,i)=>({...it, _i:i})).sort((a,b)=> a.date.localeCompare(b.date));
-  const body = document.getElementById('ddayBody');
-  body.innerHTML = items.map(it=> `
+function render_dday(w){
+  const items = w.data.items || [];
+  const rows = items.map((it,i)=> `
     <div class="dday-item">
-      <span class="dday-label">${escapeHtml(it.label)}</span>
-      <span style="display:flex;align-items:center;gap:6px;">
+      <span class="dday-label">${escapeHtml(it.label)} <small style="color:var(--ink-soft)">(${it.date})</small></span>
+      <span style="display:flex;align-items:center;gap:8px;">
         <span class="dday-count">${ddayDiffText(it.date)}</span>
-        ${editMode ? `<button class="icon-btn" data-del="${it._i}" style="width:18px;height:18px;font-size:.6rem;">✕</button>` : ''}
+        ${editMode ? `<span class="icon-btn small" data-dday-del="${w.id}:${i}" style="width:20px;height:20px;font-size:.65rem;">✕</span>` : ''}
       </span>
-    </div>
-  `).join('') || `<div class="w-empty">등록된 디데이가 없어요</div>`;
-  body.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async ()=>{
-    const idx = Number(btn.dataset.del);
-    const arr = [...ddayData.items]; arr.splice(idx,1);
-    await docRef('dday').set({items:arr}, {merge:true});
-  }));
-
-  const wrap = document.getElementById('ddayAddWrap');
-  wrap.innerHTML = editMode ? `<button class="btn small" id="ddayAddBtn">+ 디데이 추가</button>` : '';
-  const addBtn = document.getElementById('ddayAddBtn');
-  if(addBtn) addBtn.onclick = openDdayAddModal;
+    </div>`).join('') || `<div class="empty-hint">아직 등록된 디데이가 없어요</div>`;
+  return `
+    ${rows}
+    ${editMode ? `<button class="btn small" data-dday-add="${w.id}" style="margin-top:8px;">+ 디데이 추가</button>` : ''}
+  `;
 }
 
-function openDdayAddModal(){
-  openModal(`
-    <h3>디데이 추가</h3>
-    <label>이름</label><input type="text" id="dLabel" placeholder="예: 처음 만난 날">
-    <label>날짜</label><input type="date" id="dDate">
-    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
-  `, m=>{
-    m.querySelector('#c').onclick = closeModal;
-    m.querySelector('#s').onclick = async ()=>{
-      const label = m.querySelector('#dLabel').value.trim();
-      const date = m.querySelector('#dDate').value;
-      if(!label || !date){ toast('이름과 날짜를 입력해주세요'); return; }
-      await docRef('dday').set({ items: [...(ddayData.items||[]), {label, date}] }, {merge:true});
-      closeModal();
-    };
-  });
-}
-
-docRef('dday').onSnapshot(doc=>{ ddayData = doc.exists ? doc.data() : {items:[]}; renderDday(); renderCalendar(); });
-
-/* ---------------- 4. 방명록 (누구나 남길 수 있음, 삭제만 편집모드 전용) ---------------- */
-
-let guestbookData = { entries: [] };
-
-function renderGuestbook(){
-  const entries = (guestbookData.entries || []).slice().sort((a,b)=> (b.ts||0) - (a.ts||0));
-  const body = document.getElementById('guestbookBody');
-  body.innerHTML = entries.map(e=> `
-    <div class="gb-entry" data-id="${e.id}">
-      ${editMode ? `<button class="gb-del">✕</button>` : ''}
-      <span class="gb-name">${escapeHtml(e.name||'익명')}</span>
-      <span class="gb-time">${e.ts ? new Date(e.ts).toLocaleDateString('ko-KR') : ''}</span>
-      <div class="gb-msg">${escapeHtml(e.message)}</div>
-    </div>
-  `).join('') || `<div class="w-empty">아직 남겨진 방명록이 없어요</div>`;
-  body.querySelectorAll('.gb-del').forEach(btn=> btn.addEventListener('click', async ()=>{
-    const id = btn.closest('.gb-entry').dataset.id;
-    const arr = (guestbookData.entries||[]).filter(x=> x.id !== id);
-    await docRef('guestbook').set({entries: arr}, {merge:true});
-  }));
-}
-
-docRef('guestbook').onSnapshot(doc=>{ guestbookData = doc.exists ? doc.data() : {entries:[]}; renderGuestbook(); });
-
-// 방명록은 잠금 상태와 관계없이 누구나 남길 수 있어요 (삭제만 편집모드 전용)
-document.getElementById('gbSubmit').addEventListener('click', async ()=>{
-  const nameInput = document.getElementById('gbName');
-  const msgInput = document.getElementById('gbMsg');
-  const name = nameInput.value.trim();
-  const message = msgInput.value.trim();
-  if(!message){ toast('메시지를 입력해주세요'); return; }
-  try{
-    await docRef('guestbook').set({
-      entries: [...(guestbookData.entries||[]), { id: uid(), name: name || '익명', message, ts: Date.now() }]
-    }, {merge:true});
-    nameInput.value = ''; msgInput.value = '';
-    toast('방명록을 남겼어요');
-  }catch(err){
-    console.error(err);
-    toast('저장하지 못했어요. 잠시 후 다시 시도해주세요.');
-  }
-});
-
-/* ---------------- 5. 캘린더 (내용만, 제목 없음) ---------------- */
-
-let calendarData = { events: {} };
-let calState = (()=>{ const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; })();
-
-const DDAY_MILESTONE_INTERVAL = 50; // "50일 간격" 기념일 자동 표시 주기
-
-function daysBetween(baseDateStr, targetDateStr){
-  const base = new Date(baseDateStr + 'T00:00:00');
-  const target = new Date(targetDateStr + 'T00:00:00');
-  return Math.round((target - base) / 86400000);
-}
-
-// 디데이 위젯에 등록된 날짜를 기준으로, 해당 날짜와 그 뒤 50일 단위가 되는 날짜마다
-// 캘린더에 자동으로 기념일 표시를 띄워줌 (직접 캘린더에 따로 입력할 필요 없음)
-function ddayMilestonesForDate(dateStr){
-  const marks = [];
-  (ddayData.items || []).forEach(it=>{
-    if(!it.date) return;
-    const diff = daysBetween(it.date, dateStr);
-    if(diff >= 0 && diff % DDAY_MILESTONE_INTERVAL === 0){
-      marks.push(diff === 0 ? `${it.label} 시작일` : `${it.label} ${diff}일`);
-    }
-  });
-  return marks;
-}
-
-function renderCalendar(){
-  const box = document.getElementById('cardCalendar');
-  const events = calendarData.events || {};
-  const first = new Date(calState.y, calState.m, 1);
+function render_calendar(w){
+  const st = calendarMonthState[w.id] || (calendarMonthState[w.id] = (()=>{ const d=new Date(); return {y:d.getFullYear(), m:d.getMonth()}; })());
+  const events = w.data.events || {};
+  const first = new Date(st.y, st.m, 1);
   const startDow = first.getDay();
-  const daysInMonth = new Date(calState.y, calState.m+1, 0).getDate();
+  const daysInMonth = new Date(st.y, st.m+1, 0).getDate();
   const todayStr = new Date().toISOString().slice(0,10);
   let cells = '';
   for(let i=0;i<startDow;i++) cells += `<div class="cal-day empty"></div>`;
   for(let d=1; d<=daysInMonth; d++){
-    const dateStr = `${calState.y}-${String(calState.m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const hasManual = events[dateStr] && events[dateStr].length;
-    const ddayMarks = ddayMilestonesForDate(dateStr);
-    const cls = [
-      'cal-day',
-      dateStr===todayStr ? 'today' : '',
-      (hasManual || ddayMarks.length) ? 'has-event' : '',
-      ddayMarks.length ? 'has-dday' : ''
-    ].filter(Boolean).join(' ');
-    cells += `<div class="${cls}" data-day="${dateStr}" title="${ddayMarks.length ? escapeHtml(ddayMarks.join(', ')) : ''}">${d}</div>`;
+    const dateStr = `${st.y}-${String(st.m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const has = events[dateStr] && events[dateStr].length;
+    cells += `<div class="cal-day ${dateStr===todayStr?'today':''} ${has?'has-event':''}" data-cal-day="${w.id}:${dateStr}">${d}</div>`;
   }
-  box.innerHTML = `
+  return `
     <div class="cal-head">
-      <span class="icon-btn" id="calPrev">‹</span>
-      <strong>${calState.y}. ${calState.m+1}</strong>
-      <span class="icon-btn" id="calNext">›</span>
+      <span class="icon-btn" data-cal-prev="${w.id}">‹</span>
+      <strong>${st.y}. ${st.m+1}</strong>
+      <span class="icon-btn" data-cal-next="${w.id}">›</span>
     </div>
     <div class="cal-grid">
       ${['일','월','화','수','목','금','토'].map(d=>`<div class="cal-dow">${d}</div>`).join('')}
       ${cells}
     </div>
   `;
-  box.querySelector('#calPrev').onclick = ()=>{ calState.m--; if(calState.m<0){calState.m=11; calState.y--;} renderCalendar(); };
-  box.querySelector('#calNext').onclick = ()=>{ calState.m++; if(calState.m>11){calState.m=0; calState.y++;} renderCalendar(); };
-  box.querySelectorAll('[data-day]').forEach(el=> el.addEventListener('click', ()=> openDayModal(el.dataset.day)));
 }
 
-function openDayModal(dateStr){
-  const events = calendarData.events || {};
-  const manual = events[dateStr] || [];
-  const ddayMarks = ddayMilestonesForDate(dateStr);
-  if(!editMode){
-    if(!manual.length && !ddayMarks.length){ toast('이 날은 등록된 일정이 없어요'); return; }
-    const lines = [...ddayMarks.map(t=>`🎉 ${t}`), ...manual];
-    openModal(`<h3>${dateStr}</h3><div style="white-space:pre-wrap;font-size:.88rem;">${escapeHtml(lines.join('\n'))}</div>
-      <div class="modal-actions"><button class="btn ghost" id="c">닫기</button></div>`,
-      m=> m.querySelector('#c').onclick = closeModal);
-    return;
-  }
-  openModal(`
-    <h3>${dateStr} 일정</h3>
-    ${ddayMarks.length ? `<p class="hint">🎉 디데이 연동: ${escapeHtml(ddayMarks.join(', '))} (자동으로 표시되는 항목이라 여기서 지울 필요 없어요)</p>` : ''}
-    <label>내용 (줄바꿈으로 여러 개 가능)</label>
-    <textarea id="evText">${escapeHtml(manual.join('\n'))}</textarea>
-    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
-  `, m=>{
-    m.querySelector('#c').onclick = closeModal;
-    m.querySelector('#s').onclick = async ()=>{
-      const text = m.querySelector('#evText').value.trim();
-      const newEvents = {...events};
-      if(text) newEvents[dateStr] = text.split('\n').filter(Boolean); else delete newEvents[dateStr];
-      await docRef('calendar').set({events:newEvents}, {merge:true});
-      closeModal();
-    };
-  });
-}
-
-docRef('calendar').onSnapshot(doc=>{ calendarData = doc.exists ? doc.data() : {events:{}}; renderCalendar(); });
-
-/* ---------------- 6. 갤러리 (핀터레스트형 매스너리) ---------------- */
-
-let galleryData = { items: [] };
-
-function renderGallery(){
-  const box = document.getElementById('cardGallery');
-  const items = galleryData.items || [];
-  box.innerHTML = `
-    <div class="pin-grid">
-      ${items.map((url,i)=> `<div class="pin-item" data-idx="${i}"><img src="${escapeHtml(url)}"></div>`).join('')}
+function render_gallery(w){
+  const imgs = w.data.images || [];
+  return `
+    <div class="gallery-grid">
+      ${imgs.map((url,i)=> `<div class="g-item" data-gal-view="${w.id}:${i}"><img src="${escapeHtml(url)}"></div>`).join('')}
+      ${editMode ? `<div class="gallery-add" data-gal-add="${w.id}">＋</div>` : ''}
     </div>
-    ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
-    ${editMode ? `<button class="gallery-add-fab" id="galAddBtn" title="사진 추가">＋</button>` : ''}
+    ${imgs.length===0 && !editMode ? `<div class="empty-hint">아직 사진이 없어요</div>` : ''}
   `;
-  box.querySelectorAll('.pin-item').forEach(el=> el.addEventListener('click', ()=> openGalleryViewModal(Number(el.dataset.idx))));
-  box.querySelectorAll('.pin-item img').forEach(attachImgFallback);
-  const addBtn = box.querySelector('#galAddBtn');
-  if(addBtn) addBtn.onclick = openGalleryAddModal;
 }
 
-function openGalleryViewModal(idx){
-  const url = galleryData.items[idx];
-  openImageLightbox(url, editMode ? async ()=>{
-    const arr = [...galleryData.items]; arr.splice(idx,1);
-    await docRef('gallery').set({items:arr}, {merge:true});
-  } : null);
-}
-
-function openGalleryAddModal(){
-  openModal(`
-    <h3>사진 추가</h3>
-    <label>사진 올리기 (기기에서 여러 장 선택 가능)</label>
-    <input type="file" id="galFiles" accept="image/*" multiple>
-    <p class="hint">화면에 맞게 자동으로 압축해서 갤러리에 바로 추가돼요. 별도 사이트에 올릴 필요 없어요.</p>
-    <label>또는, 이미지 URL 직접 입력</label>
-    <input type="url" id="galUrl" placeholder="https://...">
-    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
-  `, m=>{
-    m.querySelector('#c').onclick = closeModal;
-    m.querySelector('#s').onclick = async ()=>{
-      const saveBtn = m.querySelector('#s');
-      const files = Array.from(m.querySelector('#galFiles').files || []);
-      const url = normalizeImageUrl(m.querySelector('#galUrl').value.trim());
-      const newItems = [];
-      if(files.length){
-        saveBtn.disabled = true;
-        for(let i=0;i<files.length;i++){
-          saveBtn.textContent = `처리 중… (${i+1}/${files.length})`;
-          try{ newItems.push(await compressImageFile(files[i], 1200, 260000)); }
-          catch(err){ toast(`"${files[i].name}" 처리 실패`); }
-        }
-      } else if(url){
-        newItems.push(url);
-      } else {
-        toast('사진을 선택하거나 URL을 입력해주세요');
-        return;
-      }
-      try{
-        await docRef('gallery').set({ items: [...(galleryData.items||[]), ...newItems] }, {merge:true});
-      }catch(err){
-        toast('저장하지 못했어요. 용량이 크면 URL 방식을 이용해주세요.');
-        saveBtn.disabled = false; saveBtn.textContent = '추가';
-        return;
-      }
-      closeModal();
-    };
-  });
-}
-
-docRef('gallery').onSnapshot(doc=>{ galleryData = doc.exists ? doc.data() : {items:[]}; renderGallery(); });
-
-/* ---------------- 6-1. 문서 정리 (갤러리와 세션카드 사이) ---------------- */
-
-let docsData = { cards: [] };
-const DOC_FILE_MAX_BYTES = 650000;
-
-function renderDocs(){
-  const list = document.getElementById('docList');
-  const cards = docsData.cards || [];
-  list.innerHTML = cards.map((c,i)=> `
-    <div class="doc-row" data-idx="${i}">
-      <span class="doc-icon">${escapeHtml(c.icon || '📄')}</span>
-      <div class="doc-main">
-        <div class="doc-title">${escapeHtml(c.title)}</div>
-        ${c.desc ? `<div class="doc-desc">${escapeHtml(c.desc)}</div>` : ''}
+function render_embed(w){
+  const url = w.data.url;
+  return `
+    ${editMode ? `<button class="btn small" data-embed-edit="${w.id}">🔗 링크 ${url?'변경':'추가'}</button>` : ''}
+    ${url ? `
+      <div class="embed-frame-wrap">
+        <iframe src="${escapeHtml(url)}" loading="lazy" referrerpolicy="no-referrer"></iframe>
       </div>
-      ${c.link ? `<a class="doc-open" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">열기 ↗</a>` : ''}
-      ${editMode ? `<button class="doc-del" data-del="${i}">✕</button>` : ''}
-    </div>
-  `).join('') || `<div class="w-empty">정리된 문서가 없어요</div>`;
-
-  list.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async ()=>{
-    const idx = Number(btn.dataset.del);
-    const arr = [...docsData.cards]; arr.splice(idx,1);
-    await docRef('documents').set({cards:arr}, {merge:true});
-  }));
-
-  const wrap = document.getElementById('docAddWrap');
-  wrap.innerHTML = editMode ? `<button class="btn small doc-add" id="docAddBtn">+ 문서 추가</button>` : '';
-  const addBtn = document.getElementById('docAddBtn');
-  if(addBtn) addBtn.onclick = openDocAddModal;
+      <div class="embed-fallback">화면이 안 보이면 사이트에서 임베드를 막아둔 거예요 · <a href="${escapeHtml(url)}" target="_blank" rel="noopener">새 창에서 열기 ↗</a></div>
+    ` : `<div class="empty-hint">등록된 링크가 없어요</div>`}
+  `;
 }
 
-function openDocAddModal(){
-  openModal(`
-    <h3>문서 추가</h3>
-    <label>아이콘(이모지, 선택)</label><input type="text" id="dcIcon" placeholder="📄" maxlength="2">
-    <label>제목</label><input type="text" id="dcTitle" placeholder="예: 설정집, 규칙 정리">
-    <label>설명 (선택)</label><input type="text" id="dcDesc" placeholder="한 줄 설명">
-    <div class="radio-row">
-      <label><input type="radio" name="doc-src" value="link" checked> 링크로 연결</label>
-      <label><input type="radio" name="doc-src" value="file"> 파일 올리기</label>
+function render_music(w){
+  const tracks = w.data.tracks || [];
+  return `
+    <div class="player-tracks">
+      ${tracks.map((t,i)=> `
+        <div class="player-track" data-track="${w.id}:${i}">
+          ♪ <span style="flex:1;">${escapeHtml(t.title)}</span>
+          ${editMode ? `<span class="icon-btn" data-mu-del="${w.id}:${i}" style="width:20px;height:20px;font-size:.65rem;">✕</span>` : ''}
+        </div>
+      `).join('') || `<div class="empty-hint">등록된 곡이 없어요</div>`}
     </div>
-    <div id="dcLinkWrap">
-      <label>문서 링크 (구글드라이브 공유 링크 등)</label><input type="url" id="dcLink" placeholder="https://drive.google.com/...">
-    </div>
-    <div id="dcFileWrap" style="display:none">
-      <label>파일 선택</label><input type="file" id="dcFile">
-      <p class="hint">약 ${Math.round(DOC_FILE_MAX_BYTES/1024)}KB보다 큰 파일은 여기서 바로 못 올려요. 그럴 땐 "링크로 연결"을 이용해주세요.</p>
-    </div>
-    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
-  `, m=>{
-    m.querySelectorAll('input[name="doc-src"]').forEach(r=> r.addEventListener('change', ()=>{
-      const isLink = m.querySelector('input[name="doc-src"]:checked').value === 'link';
-      m.querySelector('#dcLinkWrap').style.display = isLink ? '' : 'none';
-      m.querySelector('#dcFileWrap').style.display = isLink ? 'none' : '';
-    }));
-    m.querySelector('#c').onclick = closeModal;
-    m.querySelector('#s').onclick = async ()=>{
-      const saveBtn = m.querySelector('#s');
-      const title = m.querySelector('#dcTitle').value.trim();
-      const desc = m.querySelector('#dcDesc').value.trim();
-      const icon = m.querySelector('#dcIcon').value.trim();
-      if(!title){ toast('제목을 입력해주세요'); return; }
-      const isLink = m.querySelector('input[name="doc-src"]:checked').value === 'link';
-      let link = '';
-      if(isLink){
-        link = m.querySelector('#dcLink').value.trim();
-      } else {
-        const file = m.querySelector('#dcFile').files[0];
-        if(file){
-          if(file.size > DOC_FILE_MAX_BYTES){
-            toast('파일이 너무 커요. "링크로 연결"을 이용해주세요.');
-            return;
-          }
-          saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
-          try{ link = await fileToBase64(file); }
-          catch(err){ toast('파일을 읽지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='추가'; return; }
-        }
-      }
-      try{
-        await docRef('documents').set({ cards: [...(docsData.cards||[]), {icon, title, desc, link}] }, {merge:true});
-      }catch(err){
-        toast('저장하지 못했어요. 파일이 크면 링크 방식을 이용해주세요.');
-        saveBtn.disabled = false; saveBtn.textContent = '추가';
+    <audio data-player="${w.id}" style="margin-top:6px;" controls></audio>
+    <div class="yt-frame" data-ytframe="${w.id}" style="display:none;margin-top:6px;"></div>
+    ${editMode ? `<button class="btn small" data-mu-add="${w.id}" style="margin-top:6px;">+ 곡 추가</button>` : ''}
+  `;
+}
+
+const renderers = {
+  dday: render_dday, calendar: render_calendar,
+  gallery: render_gallery, embed: render_embed,
+  music: render_music
+};
+
+/* ---------------- 전체 렌더 + 이벤트 위임 ---------------- */
+
+function renderAll(){
+  refreshLockUI();
+  dashboardEl.innerHTML = widgets.map(w=>{
+    const r = renderers[w.type];
+    return widgetFrame(w, r ? r(w) : '<div class="empty-hint">알 수 없는 위젯</div>');
+  }).join('');
+  bindEvents();
+  document.querySelectorAll('.dashboard img').forEach(img=>{
+    if(!img.complete) img.addEventListener('load', applyMasonry, {once:true});
+  });
+  requestAnimationFrame(applyMasonry);
+  setTimeout(applyMasonry, 200); // 이미지 로딩 등으로 높이가 늦게 확정되는 경우 대비
+}
+
+const MASONRY_ROW = 8;   // CSS grid-auto-rows 값과 일치해야 함
+const MASONRY_GAP = 20;  // CSS gap 값과 일치해야 함
+
+function applyMasonry(){
+  document.querySelectorAll('.widget').forEach(el=>{
+    const h = el.scrollHeight;
+    const span = Math.ceil((h + MASONRY_GAP) / (MASONRY_ROW + MASONRY_GAP));
+    el.style.gridRowEnd = `span ${span}`;
+  });
+}
+window.addEventListener('resize', ()=> applyMasonry());
+
+function bindEvents(){
+  // 클릭 애니메이션
+  document.querySelectorAll('.widget').forEach(el=>{
+    el.addEventListener('click', ()=> pressAnim(el));
+  });
+
+  // 제목 편집
+  document.querySelectorAll('.widget-title[contenteditable="true"]').forEach(el=>{
+    el.addEventListener('blur', ()=> updateWidget(el.dataset.id, { title: el.textContent.trim() || '제목 없음' }));
+  });
+
+  // 설정 버튼
+  document.querySelectorAll('[data-settings]').forEach(el=>{
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); openSettingsModal(widgets.find(w=>w.id===el.dataset.settings)); });
+  });
+
+  bindDday(); bindCalendar(); bindGallery(); bindEmbed();
+  bindMusic(); bindDragReorder();
+}
+
+function widgetById(id){ return widgets.find(w=>w.id===id); }
+
+/* ----- 드래그로 위젯 순서 바꾸기 (잠금 해제 상태에서만 동작) ----- */
+let dragSrcId = null;
+
+function bindDragReorder(){
+  if(!editMode) return;
+  document.querySelectorAll('.widget').forEach(el=>{
+    el.addEventListener('dragstart', e=>{
+      // 제목 편집, 버튼, 입력창 등 내부 조작 중에는 드래그가 시작되지 않도록 함
+      if(e.target.closest('input, textarea, select, button, .icon-btn, [contenteditable="true"]')){
+        e.preventDefault();
         return;
       }
-      closeModal();
-    };
+      dragSrcId = el.dataset.id;
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try{ e.dataTransfer.setData('text/plain', el.dataset.id); }catch(_){}
+    });
+    el.addEventListener('dragend', ()=>{
+      el.classList.remove('dragging');
+      document.querySelectorAll('.widget.drag-over').forEach(x=> x.classList.remove('drag-over'));
+      dragSrcId = null;
+    });
+    el.addEventListener('dragover', e=>{
+      if(!dragSrcId || dragSrcId === el.dataset.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      document.querySelectorAll('.widget.drag-over').forEach(x=>{ if(x!==el) x.classList.remove('drag-over'); });
+      el.classList.add('drag-over');
+    });
+    el.addEventListener('dragleave', ()=> el.classList.remove('drag-over'));
+    el.addEventListener('drop', async e=>{
+      e.preventDefault();
+      el.classList.remove('drag-over');
+      const targetId = el.dataset.id;
+      const srcId = dragSrcId;
+      dragSrcId = null;
+      if(!srcId || srcId === targetId) return;
+      await reorderWidgets(srcId, targetId);
+    });
   });
 }
 
-docRef('documents').onSnapshot(doc=>{ docsData = doc.exists ? doc.data() : {cards:[]}; renderDocs(); });
-
-/* ---------------- 7. TRPG 세션카드 (클릭하면 PDF로 연결) ---------------- */
-
-let sessionsData = { cards: [] };
-const SESSION_PDF_MAX_BYTES = 650000;
-
-function renderSessions(){
-  const grid = document.getElementById('sessionGrid');
-  const cards = sessionsData.cards || [];
-  grid.innerHTML = cards.map((c,i)=> `
-    <div class="session-card" data-idx="${i}">
-      ${editMode ? `<button class="del" data-del="${i}">✕</button>` : ''}
-      <h4>${escapeHtml(c.title)}</h4>
-      ${c.note ? `<div class="meta">${escapeHtml(c.note)}</div>` : ''}
-      ${c.pdf ? `<span class="pdf-badge">📄 PDF 열기</span>` : `<span class="pdf-badge" style="color:var(--ink-soft)">연결된 PDF 없음</span>`}
-    </div>
-  `).join('') || `<div class="w-empty" style="grid-column:1/-1">등록된 세션이 없어요</div>`;
-
-  grid.querySelectorAll('.session-card').forEach(el=> el.addEventListener('click', (e)=>{
-    if(e.target.closest('[data-del]')) return;
-    const idx = Number(el.dataset.idx);
-    const card = sessionsData.cards[idx];
-    if(card.pdf) window.open(card.pdf, '_blank');
-    else toast('연결된 PDF가 없어요');
-  }));
-  grid.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async (e)=>{
-    e.stopPropagation();
-    const idx = Number(btn.dataset.del);
-    const arr = [...sessionsData.cards]; arr.splice(idx,1);
-    await docRef('sessions').set({cards:arr}, {merge:true});
-  }));
-
-  const wrap = document.getElementById('sessionAddWrap');
-  wrap.innerHTML = editMode ? `<button class="btn small session-add" id="sessAddBtn">+ 세션 추가</button>` : '';
-  const addBtn = document.getElementById('sessAddBtn');
-  if(addBtn) addBtn.onclick = openSessionAddModal;
-}
-
-function openSessionAddModal(){
-  openModal(`
-    <h3>세션 카드 추가</h3>
-    <label>세션 제목</label><input type="text" id="sTitle" placeholder="예: 1화 - 첫 만남">
-    <label>날짜/한 줄 메모 (선택)</label><input type="text" id="sNote" placeholder="예: 2026.07.01">
-    <div class="radio-row">
-      <label><input type="radio" name="pdf-src" value="file" checked> PDF 파일 올리기</label>
-      <label><input type="radio" name="pdf-src" value="link"> 링크로 연결</label>
-    </div>
-    <div id="pdfFileWrap">
-      <label>PDF 파일</label><input type="file" id="sPdfFile" accept="application/pdf">
-      <p class="hint">파일이 약 ${Math.round(SESSION_PDF_MAX_BYTES/1024)}KB보다 크면 여기서 바로 못 올려요. 그럴 땐 오른쪽 "링크로 연결"을 골라서 구글드라이브 공유 링크를 붙여넣어주세요.</p>
-    </div>
-    <div id="pdfLinkWrap" style="display:none">
-      <label>PDF 링크 (구글드라이브 공유 링크 등)</label><input type="url" id="sPdfLink" placeholder="https://drive.google.com/...">
-    </div>
-    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
-  `, m=>{
-    m.querySelectorAll('input[name="pdf-src"]').forEach(r=> r.addEventListener('change', ()=>{
-      const isFile = m.querySelector('input[name="pdf-src"]:checked').value === 'file';
-      m.querySelector('#pdfFileWrap').style.display = isFile ? '' : 'none';
-      m.querySelector('#pdfLinkWrap').style.display = isFile ? 'none' : '';
-    }));
-    m.querySelector('#c').onclick = closeModal;
-    m.querySelector('#s').onclick = async ()=>{
-      const saveBtn = m.querySelector('#s');
-      const title = m.querySelector('#sTitle').value.trim();
-      const note = m.querySelector('#sNote').value.trim();
-      if(!title){ toast('세션 제목을 입력해주세요'); return; }
-      const isFile = m.querySelector('input[name="pdf-src"]:checked').value === 'file';
-      let pdf = '';
-      if(isFile){
-        const file = m.querySelector('#sPdfFile').files[0];
-        if(file){
-          if(file.size > SESSION_PDF_MAX_BYTES){
-            toast('PDF 용량이 너무 커요. "링크로 연결"을 이용해주세요.');
-            return;
-          }
-          saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
-          try{ pdf = await fileToBase64(file); }
-          catch(err){ toast('PDF를 읽지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='추가'; return; }
-        }
-      } else {
-        pdf = m.querySelector('#sPdfLink').value.trim();
-      }
-      try{
-        await docRef('sessions').set({ cards: [...(sessionsData.cards||[]), {title, note, pdf}] }, {merge:true});
-      }catch(err){
-        toast('저장하지 못했어요. PDF 용량이 크면 링크 방식을 이용해주세요.');
-        saveBtn.disabled = false; saveBtn.textContent = '추가';
-        return;
-      }
-      closeModal();
-    };
+async function reorderWidgets(srcId, targetId){
+  const list = [...widgets];
+  const fromIdx = list.findIndex(w=> w.id === srcId);
+  const toIdx = list.findIndex(w=> w.id === targetId);
+  if(fromIdx === -1 || toIdx === -1) return;
+  const [moved] = list.splice(fromIdx, 1);
+  list.splice(toIdx, 0, moved);
+  const batch = db.batch();
+  list.forEach((w, i)=>{
+    const newOrder = (i + 1) * 1000;
+    if(w.order !== newOrder) batch.update(db.collection('widgets').doc(w.id), { order: newOrder });
   });
-}
-
-docRef('sessions').onSnapshot(doc=>{ sessionsData = doc.exists ? doc.data() : {cards:[]}; renderSessions(); });
-
-/* ---------------- 8. 체크보드 (체크된 항목은 아래로) ---------------- */
-
-let checklistData = { items: [] };
-
-function renderChecklist(){
-  const body = document.getElementById('checklistBody');
-  const all = (checklistData.items || []).map((it,i)=>({...it, _i:i}));
-  const unchecked = all.filter(it=> !it.checked);
-  const checked = all.filter(it=> it.checked);
-
-  function row(it){
-    return `
-      <div class="check-item ${it.checked?'checked':''}" data-idx="${it._i}">
-        <input type="checkbox" ${it.checked?'checked':''} ${editMode?'':'disabled'}>
-        <span>${escapeHtml(it.text)}</span>
-        ${editMode ? `<button class="del">✕</button>` : ''}
-      </div>
-    `;
+  try{
+    await batch.commit();
+  }catch(err){
+    console.error(err);
+    toast('순서를 저장하지 못했어요');
   }
-
-  body.innerHTML =
-    unchecked.map(row).join('') +
-    (unchecked.length && checked.length ? `<div class="check-divider"></div>` : '') +
-    checked.map(row).join('') ||
-    `<div class="w-empty">등록된 항목이 없어요</div>`;
-
-  body.querySelectorAll('.check-item').forEach(el=>{
-    const idx = Number(el.dataset.idx);
-    const cb = el.querySelector('input[type=checkbox]');
-    cb.addEventListener('change', async ()=>{
-      if(!editMode) return;
-      const arr = [...checklistData.items];
-      arr[idx] = { ...arr[idx], checked: cb.checked };
-      await docRef('checklist').set({items:arr}, {merge:true});
-    });
-    const del = el.querySelector('.del');
-    if(del) del.addEventListener('click', async ()=>{
-      const arr = [...checklistData.items]; arr.splice(idx,1);
-      await docRef('checklist').set({items:arr}, {merge:true});
-    });
-  });
-
-  const wrap = document.getElementById('checklistAddWrap');
-  wrap.innerHTML = `<input type="text" id="checkNewInput" placeholder="새 항목"><button class="btn small primary" id="checkAddBtn">추가</button>`;
-  const addBtn = document.getElementById('checkAddBtn');
-  const input = document.getElementById('checkNewInput');
-  const submit = async ()=>{
-    const text = input.value.trim();
-    if(!text) return;
-    await docRef('checklist').set({ items: [...(checklistData.items||[]), {text, checked:false}] }, {merge:true});
-    input.value = '';
-  };
-  addBtn.onclick = submit;
-  input.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
 }
 
-docRef('checklist').onSnapshot(doc=>{ checklistData = doc.exists ? doc.data() : {items:[]}; renderChecklist(); });
+/* ----- 디데이 ----- */
+function bindDday(){
+  document.querySelectorAll('[data-dday-add]').forEach(el=>{
+    el.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const id = el.dataset.ddayAdd;
+      openModal(`
+        <h3>디데이 추가</h3>
+        <label>이름</label><input type="text" id="dLabel" placeholder="예: 처음 만난 날">
+        <label>날짜</label><input type="date" id="dDate">
+        <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
+      `, m=>{
+        m.querySelector('#c').onclick = closeModal;
+        m.querySelector('#s').onclick = async ()=>{
+          const label = m.querySelector('#dLabel').value.trim();
+          const date = m.querySelector('#dDate').value;
+          if(!label || !date){ toast('이름과 날짜를 입력해주세요'); return; }
+          const w = widgetById(id);
+          const items = [...(w.data.items||[]), {label, date}];
+          await updateWidget(id, {'data.items': items});
+          closeModal();
+        };
+      });
+    });
+  });
+  document.querySelectorAll('[data-dday-del]').forEach(el=>{
+    el.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const [id, idx] = el.dataset.ddayDel.split(':');
+      const w = widgetById(id);
+      const items = [...w.data.items]; items.splice(Number(idx),1);
+      await updateWidget(id, {'data.items': items});
+    });
+  });
+}
 
-/* ---------------- 초기화 ---------------- */
+/* ----- 캘린더 ----- */
+function bindCalendar(){
+  document.querySelectorAll('[data-cal-prev]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id = el.dataset.calPrev; const st = calendarMonthState[id];
+    st.m--; if(st.m<0){st.m=11; st.y--;} renderAll();
+  }));
+  document.querySelectorAll('[data-cal-next]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id = el.dataset.calNext; const st = calendarMonthState[id];
+    st.m++; if(st.m>11){st.m=0; st.y++;} renderAll();
+  }));
+  document.querySelectorAll('[data-cal-day]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const [id, dateStr] = el.dataset.calDay.split(':');
+    const w = widgetById(id);
+    const events = w.data.events || {};
+    const current = (events[dateStr]||[]).join('\n');
+    if(!editMode){
+      if(!current){ toast('이 날은 등록된 일정이 없어요'); return; }
+      openModal(`<h3>${dateStr}</h3><div style="white-space:pre-wrap;font-size:.88rem;">${escapeHtml(current)}</div>
+        <div class="modal-actions"><button class="btn ghost" id="c">닫기</button></div>`,
+        m=> m.querySelector('#c').onclick = closeModal);
+      return;
+    }
+    openModal(`
+      <h3>${dateStr} 일정</h3>
+      <label>내용 (줄바꿈으로 여러 개 가능)</label>
+      <textarea id="evText">${escapeHtml(current)}</textarea>
+      <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
+    `, m=>{
+      m.querySelector('#c').onclick = closeModal;
+      m.querySelector('#s').onclick = async ()=>{
+        const text = m.querySelector('#evText').value.trim();
+        const newEvents = {...events};
+        if(text) newEvents[dateStr] = text.split('\n').filter(Boolean); else delete newEvents[dateStr];
+        await updateWidget(id, {'data.events': newEvents});
+        closeModal();
+      };
+    });
+  }));
+}
+
+/* ----- 갤러리 (벤토형) ----- */
+function bindGallery(){
+  document.querySelectorAll('[data-gal-add]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id = el.dataset.galAdd;
+    openModal(`
+      <h3>사진 추가</h3>
+      <label>사진 올리기 (기기에서 여러 장 선택 가능)</label>
+      <input type="file" id="galFile" accept="image/*" multiple>
+      <p class="hint">사진을 선택하면 화면에 맞게 자동으로 압축해서 갤러리에 바로 추가돼요. 별도 사이트에 올릴 필요 없어요. (한 위젯에 사진을 아주 많이/고화질로 올리면 저장이 안 될 수 있어요 — 그럴 땐 아래 URL 방식을 대신 써주세요)</p>
+      <label>또는, 이미지 URL 직접 입력</label>
+      <input type="url" id="imgUrl" placeholder="https://...">
+      <p class="hint">imgbb.com, imgur.com 등 무료 이미지 호스팅 사이트에 먼저 올린 뒤, 그 "직접 링크" 주소를 붙여넣어주세요. 위에서 사진을 선택하면 이 URL 입력은 무시돼요.</p>
+      <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
+    `, m=>{
+      m.querySelector('#c').onclick = closeModal;
+      m.querySelector('#s').onclick = async ()=>{
+        const saveBtn = m.querySelector('#s');
+        const files = Array.from(m.querySelector('#galFile').files || []);
+        const url = m.querySelector('#imgUrl').value.trim();
+        const w = widgetById(id);
+        const newImages = [];
+        if(files.length){
+          saveBtn.disabled = true;
+          for(let i=0;i<files.length;i++){
+            saveBtn.textContent = `사진 처리 중… (${i+1}/${files.length})`;
+            try{
+              newImages.push(await compressImageFile(files[i], 1200, 260000));
+            }catch(err){
+              toast(`"${files[i].name}" 사진을 처리하지 못했어요`);
+            }
+          }
+        } else if(url){
+          newImages.push(url);
+        } else {
+          toast('사진을 선택하거나 URL을 입력해주세요');
+          return;
+        }
+        if(newImages.length){
+          try{
+            await updateWidget(id, {'data.images': [...(w.data.images||[]), ...newImages]});
+          }catch(err){
+            toast('저장하지 못했어요. 사진 용량이 너무 크면 URL 방식을 이용해주세요.');
+            saveBtn.disabled = false;
+            saveBtn.textContent = '추가';
+            return;
+          }
+        }
+        closeModal();
+      };
+    });
+  }));
+  document.querySelectorAll('[data-gal-view]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const [id, idx] = el.dataset.galView.split(':');
+    const w = widgetById(id);
+    const url = w.data.images[idx];
+    openModal(`
+      <img src="${escapeHtml(url)}" style="width:100%;border-radius:10px;">
+      <div class="modal-actions">
+        ${editMode ? `<button class="btn danger" id="del">삭제</button>` : ''}
+        <button class="btn ghost" id="c">닫기</button>
+      </div>
+    `, m=>{
+      m.querySelector('#c').onclick = closeModal;
+      if(editMode) m.querySelector('#del').onclick = async ()=>{
+        const imgs = [...w.data.images]; imgs.splice(Number(idx),1);
+        await updateWidget(id, {'data.images': imgs});
+        closeModal();
+      };
+    });
+  }));
+}
+
+/* ----- 외부 링크 임베드 ----- */
+function bindEmbed(){
+  document.querySelectorAll('[data-embed-edit]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id = el.dataset.embedEdit;
+    const w = widgetById(id);
+    openModal(`
+      <h3>임베드 링크</h3>
+      <input type="url" id="eUrl" placeholder="https://..." value="${w.data.url||''}">
+      <p style="font-size:.75rem;color:var(--ink-soft)">일부 사이트는 보안 정책상 외부 화면 삽입을 막아둬서, 그런 경우엔 링크로 열기만 가능해요.</p>
+      <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
+    `, m=>{
+      m.querySelector('#c').onclick = closeModal;
+      m.querySelector('#s').onclick = async ()=>{
+        await updateWidget(id, {'data.url': m.querySelector('#eUrl').value.trim()});
+        closeModal();
+      };
+    });
+  }));
+}
+
+/* ----- 음악 플레이어 (오디오 URL 또는 유튜브 링크) ----- */
+function bindMusic(){
+  document.querySelectorAll('[data-mu-add]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const id = el.dataset.muAdd;
+    openModal(`
+      <h3>곡 추가</h3>
+      <label>곡 제목</label><input type="text" id="mTitle">
+      <label>오디오 파일 URL 또는 유튜브 링크</label><input type="url" id="mUrl" placeholder="mp3 직링크 또는 https://youtu.be/...">
+      <p style="font-size:.75rem;color:var(--ink-soft)">유튜브 영상 링크를 그대로 붙여넣으면 화면 안에서 바로 재생돼요. 직접 mp3 파일은 구글드라이브 등에 올린 뒤 다운로드 직링크를 붙여넣어주세요.</p>
+      <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
+    `, m=>{
+      m.querySelector('#c').onclick = closeModal;
+      m.querySelector('#s').onclick = async ()=>{
+        const title = m.querySelector('#mTitle').value.trim();
+        const url = m.querySelector('#mUrl').value.trim();
+        if(!title || !url){ toast('제목과 주소를 입력해주세요'); return; }
+        const w = widgetById(id);
+        await updateWidget(id, {'data.tracks': [...(w.data.tracks||[]), {title, url}]});
+        closeModal();
+      };
+    });
+  }));
+  document.querySelectorAll('[data-mu-del]').forEach(el=> el.addEventListener('click', async e=>{
+    e.stopPropagation();
+    const [id, idx] = el.dataset.muDel.split(':');
+    const w = widgetById(id);
+    const tracks = [...w.data.tracks]; tracks.splice(Number(idx),1);
+    await updateWidget(id, {'data.tracks': tracks});
+  }));
+  document.querySelectorAll('[data-track]').forEach(el=> el.addEventListener('click', e=>{
+    e.stopPropagation();
+    const [id, idx] = el.dataset.track.split(':');
+    const w = widgetById(id);
+    const t = w.data.tracks[idx];
+    const audioEl = document.querySelector(`[data-player="${id}"]`);
+    const ytEl = document.querySelector(`[data-ytframe="${id}"]`);
+    const ytId = extractYouTubeId(t.url);
+    if(ytId){
+      audioEl.pause(); audioEl.removeAttribute('src'); audioEl.style.display = 'none';
+      ytEl.style.display = 'block';
+      ytEl.innerHTML = `<iframe height="190" src="https://www.youtube.com/embed/${ytId}?autoplay=1" title="${escapeHtml(t.title)}" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+    } else {
+      ytEl.style.display = 'none'; ytEl.innerHTML = '';
+      audioEl.style.display = 'block';
+      audioEl.src = t.url; audioEl.play().catch(()=>{});
+    }
+    document.querySelectorAll(`[data-track^="${id}:"]`).forEach(x=> x.classList.remove('active'));
+    el.classList.add('active');
+  }));
+}
 
 refreshLockUI();
