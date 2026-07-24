@@ -1086,7 +1086,40 @@ docRef('calendar').onSnapshot(doc=>{ calendarData = doc.exists ? doc.data() : {e
    문자열이면 {url, blur:false}로, 객체면 그대로 정규화해줌 */
 function normalizeGalleryItem(it){
   if(typeof it === 'string') return { url: it, blur: false };
+  if(it.chunked) return { chunked:true, fileId: it.fileId, chunkTotal: it.chunkTotal, blur: !!it.blur };
   return { url: it.url, blur: !!it.blur };
+}
+
+/* 갤러리는 사진 여러 장이 문서 하나(gallery/gallery2)에 배열로 함께 저장되는데,
+   사진을 그대로 base64로 박아넣으면 Firestore 문서 1MB 한도를 여러 장이
+   나눠 써야 해서, 사진이 늘어날수록(특히 용량 큰 GIF는 몇 장만 있어도) 저장이
+   막혀버림. 일정 크기 이상인 파일은 이미 있는 청크 저장 방식(saveFileChunked)으로
+   따로 보관하고, 갤러리 문서에는 작은 참조 정보만 남겨서 사진이 몇 장이든
+   용량 걱정 없이 계속 추가할 수 있게 함. */
+const GALLERY_INLINE_MAX = 200000; // 이보다 크면 청크 저장으로 분리
+const chunkedImageCache = new Map(); // fileId -> 이미 불러온 data URL(캐시)
+
+async function storeGalleryImage(dataUrl){
+  if(dataUrl.length <= GALLERY_INLINE_MAX) return { url: dataUrl };
+  const { fileId, total } = await saveFileChunked(dataUrl);
+  chunkedImageCache.set(fileId, dataUrl); // 방금 올린 사진은 바로 캐시해서 다시 안 불러와도 되게 함
+  return { chunked: true, fileId, chunkTotal: total };
+}
+
+/* 청크로 저장된 사진은 비동기로 불러와야 해서, 아직 캐시에 없으면 null을 반환하고
+   (그동안 로딩 타일을 보여줌) 다 불러오면 onReady()로 다시 그리게 함 */
+function resolveGalleryItemUrl(item, onReady){
+  if(!item.chunked) return item.url;
+  if(chunkedImageCache.has(item.fileId)) return chunkedImageCache.get(item.fileId);
+  loadFileChunked(item.fileId, item.chunkTotal).then(url=>{
+    chunkedImageCache.set(item.fileId, url);
+    onReady();
+  }).catch(()=>{ chunkedImageCache.set(item.fileId, ''); onReady(); });
+  return null;
+}
+
+function deleteGalleryImageIfChunked(item){
+  if(item && item.chunked){ deleteFileChunked(item.fileId, item.chunkTotal).catch(()=>{}); }
 }
 
 let galleryData = { items: [] };
@@ -1096,18 +1129,23 @@ function renderGallery(){
   const items = (galleryData.items || []).map(normalizeGalleryItem);
   box.innerHTML = `
     <div class="pin-grid" id="galleryGrid">
-      ${items.map(({url,blur},i)=> `
-        <div class="pin-item ${blur ? 'blurred' : ''}" data-idx="${i}">
-          <img src="${escapeHtml(url)}">
+      ${items.map((it,i)=>{
+        const resolved = resolveGalleryItemUrl(it, renderGallery);
+        if(resolved === null){
+          return `<div class="pin-item pin-loading" data-idx="${i}"><span>불러오는 중…</span></div>`;
+        }
+        return `
+        <div class="pin-item ${it.blur ? 'blurred' : ''}" data-idx="${i}">
+          <img src="${escapeHtml(resolved)}">
           ${editMode ? `<button class="pin-del-btn" data-del="${i}" title="삭제">✕</button>` : ''}
-          ${editMode ? `<button class="pin-blur-btn" data-blur="${i}" title="${blur ? '블러 해제' : '블러 처리'}">${blur ? '🙈' : '👁'}</button>` : ''}
-        </div>
-      `).join('')}
+          ${editMode ? `<button class="pin-blur-btn" data-blur="${i}" title="${it.blur ? '블러 해제' : '블러 처리'}">${it.blur ? '🙈' : '👁'}</button>` : ''}
+        </div>`;
+      }).join('')}
     </div>
     ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
     ${editMode ? `<button class="gallery-add-fab" id="galAddBtn" title="사진 추가">＋</button>` : ''}
   `;
-  box.querySelectorAll('.pin-item').forEach(el=> el.addEventListener('click', (e)=>{
+  box.querySelectorAll('.pin-item:not(.pin-loading)').forEach(el=> el.addEventListener('click', (e)=>{
     if(e.target.closest('[data-blur], [data-del]')) return;
     openGalleryViewModal(Number(el.dataset.idx));
   }));
@@ -1122,13 +1160,15 @@ function renderGallery(){
   box.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async (e)=>{
     e.stopPropagation();
     const idx = Number(btn.dataset.del);
-    const arr = items.slice(); arr.splice(idx,1);
+    const arr = items.slice();
+    const [removed] = arr.splice(idx,1);
     await docRef('gallery').set({items:arr}, {merge:true});
+    deleteGalleryImageIfChunked(removed);
   }));
   const addBtn = box.querySelector('#galAddBtn');
   if(addBtn) addBtn.onclick = openGalleryAddModal;
   bindPinDragReorder(
-    box.querySelector('#galleryGrid'), '.pin-item',
+    box.querySelector('#galleryGrid'), '.pin-item:not(.pin-loading)',
     ()=> items.slice(),
     async (arr)=> docRef('gallery').set({items:arr}, {merge:true})
   );
@@ -1136,10 +1176,14 @@ function renderGallery(){
 
 function openGalleryViewModal(idx){
   const items = (galleryData.items || []).map(normalizeGalleryItem);
-  const url = items[idx].url;
+  const item = items[idx];
+  const url = resolveGalleryItemUrl(item, ()=>{}); // 클릭 가능한 타일은 이미 렌더됐으므로 캐시에 항상 있음
+  if(!url){ toast('사진을 아직 불러오는 중이에요'); return; }
   openImageLightbox(url, editMode ? async ()=>{
-    const arr = items.slice(); arr.splice(idx,1);
+    const arr = items.slice();
+    const [removed] = arr.splice(idx,1);
     await docRef('gallery').set({items:arr}, {merge:true});
+    deleteGalleryImageIfChunked(removed);
   } : null);
 }
 
@@ -1168,8 +1212,11 @@ function openGalleryAddModal(){
         saveBtn.disabled = true;
         for(let i=0;i<files.length;i++){
           saveBtn.textContent = `처리 중… (${i+1}/${files.length})`;
-          try{ newItems.push({ url: await compressImageFile(files[i], 1200, 260000), blur }); }
-          catch(err){ toast(`"${files[i].name}" 처리 실패`); }
+          try{
+            const dataUrl = await compressImageFile(files[i], 1200, 260000);
+            const stored = await storeGalleryImage(dataUrl);
+            newItems.push({ ...stored, blur });
+          }catch(err){ toast(`"${files[i].name}" 처리 실패`); }
         }
       } else if(url){
         newItems.push({ url, blur });
@@ -1208,13 +1255,18 @@ function renderGallery2(){
       <span class="gallery-toggle-arrow ${gallery2Collapsed ? '' : 'open'}">⌄</span>
     </button>
     <div class="pin-grid-dense" id="gallery2Grid" style="${gallery2Collapsed ? 'display:none;' : ''}">
-      ${items.map(({url,blur},i)=> `
-        <div class="pin-item-dense ${blur ? 'blurred' : ''}" data-idx="${i}">
-          <img src="${escapeHtml(url)}">
+      ${items.map((it,i)=>{
+        const resolved = resolveGalleryItemUrl(it, renderGallery2);
+        if(resolved === null){
+          return `<div class="pin-item-dense pin-loading" data-idx="${i}"><span>불러오는 중…</span></div>`;
+        }
+        return `
+        <div class="pin-item-dense ${it.blur ? 'blurred' : ''}" data-idx="${i}">
+          <img src="${escapeHtml(resolved)}">
           ${editMode ? `<button class="pin-del-btn" data-del="${i}" title="삭제">✕</button>` : ''}
-          ${editMode ? `<button class="pin-blur-btn" data-blur="${i}" title="${blur ? '블러 해제' : '블러 처리'}">${blur ? '🙈' : '👁'}</button>` : ''}
-        </div>
-      `).join('')}
+          ${editMode ? `<button class="pin-blur-btn" data-blur="${i}" title="${it.blur ? '블러 해제' : '블러 처리'}">${it.blur ? '🙈' : '👁'}</button>` : ''}
+        </div>`;
+      }).join('')}
       ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
     </div>
     ${editMode && !gallery2Collapsed ? `<button class="gallery-add-fab" id="galAddBtn2" title="사진 추가">＋</button>` : ''}
@@ -1224,7 +1276,7 @@ function renderGallery2(){
     gallery2Collapsed = !gallery2Collapsed;
     renderGallery2();
   };
-  box.querySelectorAll('.pin-item-dense').forEach(el=> el.addEventListener('click', (e)=>{
+  box.querySelectorAll('.pin-item-dense:not(.pin-loading)').forEach(el=> el.addEventListener('click', (e)=>{
     if(e.target.closest('[data-blur], [data-del]')) return;
     openGallery2ViewModal(Number(el.dataset.idx));
   }));
@@ -1239,14 +1291,16 @@ function renderGallery2(){
   box.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async (e)=>{
     e.stopPropagation();
     const idx = Number(btn.dataset.del);
-    const arr = items.slice(); arr.splice(idx,1);
+    const arr = items.slice();
+    const [removed] = arr.splice(idx,1);
     await docRef('gallery2').set({items:arr}, {merge:true});
+    deleteGalleryImageIfChunked(removed);
   }));
   const addBtn = box.querySelector('#galAddBtn2');
   if(addBtn) addBtn.onclick = openGallery2AddModal;
   if(!gallery2Collapsed){
     bindPinDragReorder(
-      box.querySelector('#gallery2Grid'), '.pin-item-dense',
+      box.querySelector('#gallery2Grid'), '.pin-item-dense:not(.pin-loading)',
       ()=> items.slice(),
       async (arr)=> docRef('gallery2').set({items:arr}, {merge:true})
     );
@@ -1255,10 +1309,14 @@ function renderGallery2(){
 
 function openGallery2ViewModal(idx){
   const items = (gallery2Data.items || []).map(normalizeGalleryItem);
-  const url = items[idx].url;
+  const item = items[idx];
+  const url = resolveGalleryItemUrl(item, ()=>{});
+  if(!url){ toast('사진을 아직 불러오는 중이에요'); return; }
   openImageLightbox(url, editMode ? async ()=>{
-    const arr = items.slice(); arr.splice(idx,1);
+    const arr = items.slice();
+    const [removed] = arr.splice(idx,1);
     await docRef('gallery2').set({items:arr}, {merge:true});
+    deleteGalleryImageIfChunked(removed);
   } : null);
 }
 
@@ -1287,8 +1345,11 @@ function openGallery2AddModal(){
         saveBtn.disabled = true;
         for(let i=0;i<files.length;i++){
           saveBtn.textContent = `처리 중… (${i+1}/${files.length})`;
-          try{ newItems.push({ url: await compressImageFile(files[i], 1200, 260000), blur }); }
-          catch(err){ toast(`"${files[i].name}" 처리 실패`); }
+          try{
+            const dataUrl = await compressImageFile(files[i], 1200, 260000);
+            const stored = await storeGalleryImage(dataUrl);
+            newItems.push({ ...stored, blur });
+          }catch(err){ toast(`"${files[i].name}" 처리 실패`); }
         }
       } else if(url){
         newItems.push({ url, blur });
