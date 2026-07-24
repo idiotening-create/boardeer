@@ -1113,6 +1113,7 @@ function renderDocs(){
         ${c.desc ? `<div class="doc-desc">${escapeHtml(c.desc)}</div>` : ''}
       </div>
       ${c.chunked ? `<a class="doc-open" href="#" data-open="${i}">열기 ↗</a>` : (c.link ? `<a class="doc-open" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">열기 ↗</a>` : '')}
+      ${editMode ? `<button class="doc-edit" data-edit="${i}">✎</button>` : ''}
       ${editMode ? `<button class="doc-del" data-del="${i}">✕</button>` : ''}
     </div>
   `).join('') || `<div class="w-empty">정리된 문서가 없어요</div>`;
@@ -1129,6 +1130,8 @@ function renderDocs(){
     }catch(err){ toast('파일을 불러오지 못했어요'); }
     a.textContent = original;
   }));
+
+  list.querySelectorAll('[data-edit]').forEach(btn=> btn.addEventListener('click', ()=> openDocEditModal(Number(btn.dataset.edit))));
 
   list.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async ()=>{
     const idx = Number(btn.dataset.del);
@@ -1218,6 +1221,93 @@ function openDocAddModal(){
 
 docRef('documents').onSnapshot(doc=>{ docsData = doc.exists ? doc.data() : {cards:[]}; renderDocs(); });
 
+function openDocEditModal(idx){
+  const c = docsData.cards[idx];
+  const currentDesc = c.chunked ? '파일 (자동 분할 저장됨)' : (c.link ? (c.link.startsWith('data:') ? '파일 (직접 저장됨)' : '링크') : '없음');
+  openModal(`
+    <h3>문서 수정</h3>
+    <label>아이콘(이모지, 선택)</label><input type="text" id="dcIcon" placeholder="📄" maxlength="2" value="${escapeHtml(c.icon||'')}">
+    <label>제목</label><input type="text" id="dcTitle" value="${escapeHtml(c.title||'')}">
+    <label>설명 (선택)</label><input type="text" id="dcDesc" value="${escapeHtml(c.desc||'')}">
+    <p class="hint">현재 연결: ${currentDesc}. 그대로 두거나 아래에서 바꿀 수 있어요.</p>
+    <div class="radio-row">
+      <label><input type="radio" name="doc-src-e" value="keep" checked> 그대로 유지</label>
+      <label><input type="radio" name="doc-src-e" value="link"> 링크로 바꾸기</label>
+      <label><input type="radio" name="doc-src-e" value="file"> 파일로 바꾸기</label>
+    </div>
+    <div id="dcLinkWrapE" style="display:none">
+      <label>문서 링크 (구글드라이브 공유 링크 등)</label><input type="url" id="dcLinkE" placeholder="https://drive.google.com/...">
+    </div>
+    <div id="dcFileWrapE" style="display:none">
+      <label>파일 선택</label><input type="file" id="dcFileE">
+      <p class="hint">약 ${Math.round(DOC_FILE_CHUNKED_MAX_BYTES/1024/1024)}MB까지 가능해요.</p>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
+  `, m=>{
+    m.querySelectorAll('input[name="doc-src-e"]').forEach(r=> r.addEventListener('change', ()=>{
+      const val = m.querySelector('input[name="doc-src-e"]:checked').value;
+      m.querySelector('#dcLinkWrapE').style.display = val==='link' ? '' : 'none';
+      m.querySelector('#dcFileWrapE').style.display = val==='file' ? '' : 'none';
+    }));
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#s').onclick = async ()=>{
+      const saveBtn = m.querySelector('#s');
+      const title = m.querySelector('#dcTitle').value.trim();
+      const desc = m.querySelector('#dcDesc').value.trim();
+      const icon = m.querySelector('#dcIcon').value.trim();
+      if(!title){ toast('제목을 입력해주세요'); return; }
+      const mode = m.querySelector('input[name="doc-src-e"]:checked').value;
+      const updated = { icon, title, desc, link: c.link || '' };
+      if(c.chunked){ updated.chunked = true; updated.fileId = c.fileId; updated.chunkTotal = c.chunkTotal; }
+      let oldChunkToDelete = null;
+
+      if(mode === 'link'){
+        const link = m.querySelector('#dcLinkE').value.trim();
+        if(!link){ toast('링크를 입력해주세요'); return; }
+        if(c.chunked) oldChunkToDelete = { fileId: c.fileId, total: c.chunkTotal };
+        updated.link = link;
+        delete updated.chunked; delete updated.fileId; delete updated.chunkTotal;
+      } else if(mode === 'file'){
+        const file = m.querySelector('#dcFileE').files[0];
+        if(!file){ toast('파일을 선택해주세요'); return; }
+        if(file.size > DOC_FILE_CHUNKED_MAX_BYTES){
+          toast(`파일이 너무 커요 (최대 ${Math.round(DOC_FILE_CHUNKED_MAX_BYTES/1024/1024)}MB).`);
+          return;
+        }
+        saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
+        let base64;
+        try{ base64 = await fileToBase64(file); }
+        catch(err){ toast('파일을 읽지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='저장'; return; }
+        if(c.chunked) oldChunkToDelete = { fileId: c.fileId, total: c.chunkTotal };
+        if(file.size > DOC_FILE_MAX_BYTES){
+          let chunkInfo;
+          try{ chunkInfo = await saveFileChunked(base64); }
+          catch(err){ toast('저장하지 못했어요.'); saveBtn.disabled=false; saveBtn.textContent='저장'; return; }
+          updated.chunked = true; updated.fileId = chunkInfo.fileId; updated.chunkTotal = chunkInfo.total;
+          updated.link = '';
+        } else {
+          updated.link = base64;
+          delete updated.chunked; delete updated.fileId; delete updated.chunkTotal;
+        }
+      }
+
+      const arr = [...docsData.cards]; arr[idx] = updated;
+      saveBtn.disabled = true; saveBtn.textContent = '저장 중…';
+      try{
+        await docRef('documents').set({ cards: arr }, {merge:true});
+      }catch(err){
+        toast('저장하지 못했어요.');
+        saveBtn.disabled = false; saveBtn.textContent = '저장';
+        return;
+      }
+      if(oldChunkToDelete) deleteFileChunked(oldChunkToDelete.fileId, oldChunkToDelete.total).catch(()=>{});
+      docsData = { ...docsData, cards: arr };
+      renderDocs();
+      closeModal();
+    };
+  });
+}
+
 /* ---------------- 7. 자료 카드 (썸네일 이미지만 보이고, 누르면 PDF/링크로 연결) ---------------- */
 
 let sessionsData = { cards: [] };
@@ -1231,12 +1321,13 @@ function renderSessions(){
   grid.innerHTML = cards.map((c,i)=> `
     <div class="session-card" data-idx="${i}" title="${escapeHtml(c.title||'')}">
       ${c.thumb ? `<img src="${escapeHtml(c.thumb)}" alt="${escapeHtml(c.title||'')}">` : `<div class="session-noimg">📄</div>`}
+      ${editMode ? `<button class="edit" data-edit="${i}">✎</button>` : ''}
       ${editMode ? `<button class="del" data-del="${i}">✕</button>` : ''}
     </div>
   `).join('') || `<div class="w-empty" style="grid-column:1/-1">등록된 자료가 없어요</div>`;
 
   grid.querySelectorAll('.session-card').forEach(el=> el.addEventListener('click', async (e)=>{
-    if(e.target.closest('[data-del]')) return;
+    if(e.target.closest('[data-del]') || e.target.closest('[data-edit]')) return;
     const idx = Number(el.dataset.idx);
     const card = sessionsData.cards[idx];
     if(card.chunked){
@@ -1250,6 +1341,10 @@ function renderSessions(){
     } else {
       toast('연결된 자료가 없어요');
     }
+  }));
+  grid.querySelectorAll('[data-edit]').forEach(btn=> btn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    openSessionEditModal(Number(btn.dataset.edit));
   }));
   grid.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async (e)=>{
     e.stopPropagation();
@@ -1348,6 +1443,96 @@ function openSessionAddModal(){
 }
 
 docRef('sessions').onSnapshot(doc=>{ sessionsData = doc.exists ? doc.data() : {cards:[]}; renderSessions(); });
+
+function openSessionEditModal(idx){
+  const c = sessionsData.cards[idx];
+  const pdfStatus = c.chunked ? '자료(자동 분할 저장됨)' : (c.pdf ? (c.pdf.startsWith('data:') ? '자료(직접 저장됨)' : '링크') : '없음');
+  openModal(`
+    <h3>자료 수정</h3>
+    <label>제목 (선택 — 마우스를 올리면 보여요)</label><input type="text" id="sTitle" value="${escapeHtml(c.title||'')}">
+    <label>썸네일 이미지 교체 (선택 — 비워두면 기존 사진 유지)</label>
+    <input type="file" id="sThumbFileE" accept="image/*">
+    <p class="hint">현재 연결된 자료: ${pdfStatus}. 그대로 두거나 아래에서 바꿀 수 있어요.</p>
+    <div class="radio-row">
+      <label><input type="radio" name="pdf-src-e" value="keep" checked> 그대로 유지</label>
+      <label><input type="radio" name="pdf-src-e" value="file"> PDF 파일로 바꾸기</label>
+      <label><input type="radio" name="pdf-src-e" value="link"> 링크로 바꾸기</label>
+    </div>
+    <div id="pdfFileWrapE" style="display:none">
+      <label>PDF 파일</label><input type="file" id="sPdfFileE" accept="application/pdf">
+      <p class="hint">약 ${Math.round(SESSION_PDF_CHUNKED_MAX_BYTES/1024/1024)}MB까지 가능해요.</p>
+    </div>
+    <div id="pdfLinkWrapE" style="display:none">
+      <label>링크 (구글드라이브 공유 링크 등)</label><input type="url" id="sPdfLinkE" placeholder="https://drive.google.com/...">
+    </div>
+    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">저장</button></div>
+  `, m=>{
+    m.querySelectorAll('input[name="pdf-src-e"]').forEach(r=> r.addEventListener('change', ()=>{
+      const val = m.querySelector('input[name="pdf-src-e"]:checked').value;
+      m.querySelector('#pdfFileWrapE').style.display = val==='file' ? '' : 'none';
+      m.querySelector('#pdfLinkWrapE').style.display = val==='link' ? '' : 'none';
+    }));
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#s').onclick = async ()=>{
+      const saveBtn = m.querySelector('#s');
+      const title = m.querySelector('#sTitle').value.trim();
+      const mode = m.querySelector('input[name="pdf-src-e"]:checked').value;
+      const updated = { title, thumb: c.thumb, pdf: c.pdf || '' };
+      if(c.chunked){ updated.chunked = true; updated.fileId = c.fileId; updated.chunkTotal = c.chunkTotal; }
+      let oldChunkToDelete = null;
+
+      saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
+
+      const thumbFile = m.querySelector('#sThumbFileE').files[0];
+      if(thumbFile){
+        try{ updated.thumb = await compressImageFile(thumbFile, 900, SESSION_THUMB_MAX_BYTES); }
+        catch(err){ toast('썸네일 이미지를 처리하지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='저장'; return; }
+      }
+
+      if(mode === 'link'){
+        const link = m.querySelector('#sPdfLinkE').value.trim();
+        if(!link){ toast('링크를 입력해주세요'); saveBtn.disabled=false; saveBtn.textContent='저장'; return; }
+        if(c.chunked) oldChunkToDelete = { fileId: c.fileId, total: c.chunkTotal };
+        updated.pdf = link;
+        delete updated.chunked; delete updated.fileId; delete updated.chunkTotal;
+      } else if(mode === 'file'){
+        const file = m.querySelector('#sPdfFileE').files[0];
+        if(!file){ toast('PDF 파일을 선택해주세요'); saveBtn.disabled=false; saveBtn.textContent='저장'; return; }
+        if(file.size > SESSION_PDF_CHUNKED_MAX_BYTES){
+          toast(`PDF 용량이 너무 커요 (최대 ${Math.round(SESSION_PDF_CHUNKED_MAX_BYTES/1024/1024)}MB).`);
+          saveBtn.disabled=false; saveBtn.textContent='저장'; return;
+        }
+        let base64;
+        try{ base64 = await fileToBase64(file); }
+        catch(err){ toast('PDF를 읽지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='저장'; return; }
+        if(c.chunked) oldChunkToDelete = { fileId: c.fileId, total: c.chunkTotal };
+        if(file.size > SESSION_PDF_MAX_BYTES){
+          let chunkInfo;
+          try{ chunkInfo = await saveFileChunked(base64); }
+          catch(err){ toast('저장하지 못했어요.'); saveBtn.disabled=false; saveBtn.textContent='저장'; return; }
+          updated.chunked = true; updated.fileId = chunkInfo.fileId; updated.chunkTotal = chunkInfo.total;
+          updated.pdf = '';
+        } else {
+          updated.pdf = base64;
+          delete updated.chunked; delete updated.fileId; delete updated.chunkTotal;
+        }
+      }
+
+      const arr = [...sessionsData.cards]; arr[idx] = updated;
+      try{
+        await docRef('sessions').set({ cards: arr }, {merge:true});
+      }catch(err){
+        toast('저장하지 못했어요.');
+        saveBtn.disabled = false; saveBtn.textContent = '저장';
+        return;
+      }
+      if(oldChunkToDelete) deleteFileChunked(oldChunkToDelete.fileId, oldChunkToDelete.total).catch(()=>{});
+      sessionsData = { ...sessionsData, cards: arr };
+      renderSessions();
+      closeModal();
+    };
+  });
+}
 
 /* ---------------- 8. 체크보드 (체크된 항목은 아래로) ---------------- */
 
