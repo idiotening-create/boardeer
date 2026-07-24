@@ -44,10 +44,10 @@ async function sha256(str){
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-function openModal(innerHtml, onMount){
+function openModal(innerHtml, onMount, extraClass){
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
-  overlay.innerHTML = `<div class="modal">${innerHtml}</div>`;
+  overlay.innerHTML = `<div class="modal${extraClass ? ' ' + extraClass : ''}">${innerHtml}</div>`;
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) closeModal(); });
   modalRoot.innerHTML = '';
   modalRoot.appendChild(overlay);
@@ -65,7 +65,7 @@ function uid(){ return Math.random().toString(36).slice(2,10) + Date.now().toStr
    onDelete를 넘기면(편집모드일 때만) 팝업 안에 삭제 버튼도 같이 보여줌 */
 function openImageLightbox(url, onDelete){
   openModal(`
-    <img src="${escapeHtml(url)}" style="width:100%;border-radius:10px;">
+    <img src="${escapeHtml(url)}" class="lightbox-img">
     <div class="modal-actions">
       ${onDelete ? `<button class="btn danger" id="del">삭제</button>` : ''}
       <button class="btn ghost" id="c">닫기</button>
@@ -74,7 +74,7 @@ function openImageLightbox(url, onDelete){
     m.querySelector('#c').onclick = closeModal;
     if(onDelete) m.querySelector('#del').onclick = async ()=>{ await onDelete(); closeModal(); };
     attachImgFallback(m.querySelector('img'));
-  });
+  }, 'modal-lightbox');
 }
 
 /* imgur 공유 페이지 링크(예: imgur.com/xxxxx)는 실제 이미지 파일이 아니라 HTML 페이지라
@@ -791,11 +791,9 @@ function renderDday(){
   const body = document.getElementById('ddayBody');
   body.innerHTML = items.map(it=> `
     <div class="dday-item">
-      <span class="dday-label">${escapeHtml(it.label)}</span>
-      <span style="display:flex;align-items:center;gap:6px;">
-        <span class="dday-count">${ddayDiffText(it.date)}</span>
-        ${editMode ? `<button class="icon-btn" data-del="${it._i}" style="width:18px;height:18px;font-size:.6rem;">✕</button>` : ''}
-      </span>
+      ${editMode ? `<button class="icon-btn" data-del="${it._i}">✕</button>` : ''}
+      <div class="dday-label">${escapeHtml(it.label)}</div>
+      <div class="dday-count">${ddayDiffText(it.date)}</div>
     </div>
   `).join('') || `<div class="w-empty">등록된 디데이가 없어요</div>`;
   body.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async ()=>{
@@ -1133,29 +1131,28 @@ function openDocAddModal(){
 
 docRef('documents').onSnapshot(doc=>{ docsData = doc.exists ? doc.data() : {cards:[]}; renderDocs(); });
 
-/* ---------------- 7. TRPG 세션카드 (클릭하면 PDF로 연결) ---------------- */
+/* ---------------- 7. 자료 카드 (썸네일 이미지만 보이고, 누르면 PDF/링크로 연결) ---------------- */
 
 let sessionsData = { cards: [] };
 const SESSION_PDF_MAX_BYTES = 650000;
+const SESSION_THUMB_MAX_BYTES = 220000;
 
 function renderSessions(){
   const grid = document.getElementById('sessionGrid');
   const cards = sessionsData.cards || [];
   grid.innerHTML = cards.map((c,i)=> `
-    <div class="session-card" data-idx="${i}">
+    <div class="session-card" data-idx="${i}" title="${escapeHtml(c.title||'')}">
+      ${c.thumb ? `<img src="${escapeHtml(c.thumb)}" alt="${escapeHtml(c.title||'')}">` : `<div class="session-noimg">📄</div>`}
       ${editMode ? `<button class="del" data-del="${i}">✕</button>` : ''}
-      <h4>${escapeHtml(c.title)}</h4>
-      ${c.note ? `<div class="meta">${escapeHtml(c.note)}</div>` : ''}
-      ${c.pdf ? `<span class="pdf-badge">📄 PDF 열기</span>` : `<span class="pdf-badge" style="color:var(--ink-soft)">연결된 PDF 없음</span>`}
     </div>
-  `).join('') || `<div class="w-empty" style="grid-column:1/-1">등록된 세션이 없어요</div>`;
+  `).join('') || `<div class="w-empty" style="grid-column:1/-1">등록된 자료가 없어요</div>`;
 
   grid.querySelectorAll('.session-card').forEach(el=> el.addEventListener('click', (e)=>{
     if(e.target.closest('[data-del]')) return;
     const idx = Number(el.dataset.idx);
     const card = sessionsData.cards[idx];
     if(card.pdf) window.open(card.pdf, '_blank');
-    else toast('연결된 PDF가 없어요');
+    else toast('연결된 자료가 없어요');
   }));
   grid.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async (e)=>{
     e.stopPropagation();
@@ -1165,16 +1162,18 @@ function renderSessions(){
   }));
 
   const wrap = document.getElementById('sessionAddWrap');
-  wrap.innerHTML = editMode ? `<button class="btn small session-add" id="sessAddBtn">+ 세션 추가</button>` : '';
+  wrap.innerHTML = editMode ? `<button class="btn small session-add" id="sessAddBtn">+ 자료 추가</button>` : '';
   const addBtn = document.getElementById('sessAddBtn');
   if(addBtn) addBtn.onclick = openSessionAddModal;
 }
 
 function openSessionAddModal(){
   openModal(`
-    <h3>세션 카드 추가</h3>
-    <label>세션 제목</label><input type="text" id="sTitle" placeholder="예: 1화 - 첫 만남">
-    <label>날짜/한 줄 메모 (선택)</label><input type="text" id="sNote" placeholder="예: 2026.07.01">
+    <h3>자료 추가</h3>
+    <label>썸네일 이미지 (사진 한 장)</label>
+    <input type="file" id="sThumbFile" accept="image/*">
+    <p class="hint">화면에 맞게 자동으로 압축해서 저장돼요. 카드에는 이 사진만 보여요.</p>
+    <label>제목 (선택 — 마우스를 올리면 보여요)</label><input type="text" id="sTitle" placeholder="예: 1화 - 첫 만남">
     <div class="radio-row">
       <label><input type="radio" name="pdf-src" value="file" checked> PDF 파일 올리기</label>
       <label><input type="radio" name="pdf-src" value="link"> 링크로 연결</label>
@@ -1184,7 +1183,7 @@ function openSessionAddModal(){
       <p class="hint">파일이 약 ${Math.round(SESSION_PDF_MAX_BYTES/1024)}KB보다 크면 여기서 바로 못 올려요. 그럴 땐 오른쪽 "링크로 연결"을 골라서 구글드라이브 공유 링크를 붙여넣어주세요.</p>
     </div>
     <div id="pdfLinkWrap" style="display:none">
-      <label>PDF 링크 (구글드라이브 공유 링크 등)</label><input type="url" id="sPdfLink" placeholder="https://drive.google.com/...">
+      <label>링크 (구글드라이브 공유 링크 등)</label><input type="url" id="sPdfLink" placeholder="https://drive.google.com/...">
     </div>
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
   `, m=>{
@@ -1197,26 +1196,35 @@ function openSessionAddModal(){
     m.querySelector('#s').onclick = async ()=>{
       const saveBtn = m.querySelector('#s');
       const title = m.querySelector('#sTitle').value.trim();
-      const note = m.querySelector('#sNote').value.trim();
-      if(!title){ toast('세션 제목을 입력해주세요'); return; }
+      const thumbFile = m.querySelector('#sThumbFile').files[0];
+      if(!thumbFile){ toast('썸네일 이미지를 선택해주세요'); return; }
       const isFile = m.querySelector('input[name="pdf-src"]:checked').value === 'file';
       let pdf = '';
       if(isFile){
         const file = m.querySelector('#sPdfFile').files[0];
-        if(file){
-          if(file.size > SESSION_PDF_MAX_BYTES){
-            toast('PDF 용량이 너무 커요. "링크로 연결"을 이용해주세요.');
-            return;
-          }
-          saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
-          try{ pdf = await fileToBase64(file); }
-          catch(err){ toast('PDF를 읽지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='추가'; return; }
+        if(!file){ toast('PDF 파일을 선택하거나 "링크로 연결"을 골라주세요'); return; }
+        if(file.size > SESSION_PDF_MAX_BYTES){
+          toast('PDF 용량이 너무 커요. "링크로 연결"을 이용해주세요.');
+          return;
         }
+        saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
+        try{ pdf = await fileToBase64(file); }
+        catch(err){ toast('PDF를 읽지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='추가'; return; }
       } else {
         pdf = m.querySelector('#sPdfLink').value.trim();
+        if(!pdf){ toast('링크를 입력해주세요'); return; }
+      }
+      saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
+      let thumb = '';
+      try{
+        thumb = await compressImageFile(thumbFile, 900, SESSION_THUMB_MAX_BYTES);
+      }catch(err){
+        toast('썸네일 이미지를 처리하지 못했어요');
+        saveBtn.disabled = false; saveBtn.textContent = '추가';
+        return;
       }
       try{
-        await docRef('sessions').set({ cards: [...(sessionsData.cards||[]), {title, note, pdf}] }, {merge:true});
+        await docRef('sessions').set({ cards: [...(sessionsData.cards||[]), {title, thumb, pdf}] }, {merge:true});
       }catch(err){
         toast('저장하지 못했어요. PDF 용량이 크면 링크 방식을 이용해주세요.');
         saveBtn.disabled = false; saveBtn.textContent = '추가';
