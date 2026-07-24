@@ -253,7 +253,7 @@ function refreshLockUI(){
 
 function renderAllModules(){
   renderImages(); renderMusic(); renderDday(); renderGuestbook();
-  renderCalendar(); renderGallery(); renderDocs(); renderSessions(); renderChecklist();
+  renderCalendar(); renderGallery(); renderGallery2(); renderDocs(); renderSessions(); renderChecklist();
 }
 
 lockBtn.addEventListener('click', async ()=>{
@@ -1039,29 +1039,52 @@ docRef('calendar').onSnapshot(doc=>{ calendarData = doc.exists ? doc.data() : {e
 
 /* ---------------- 6. 갤러리 (핀터레스트형 매스너리) ---------------- */
 
+/* 예전엔 items가 그냥 URL 문자열 배열이었어서, 새로 추가된 블러 옵션과 호환되도록
+   문자열이면 {url, blur:false}로, 객체면 그대로 정규화해줌 */
+function normalizeGalleryItem(it){
+  if(typeof it === 'string') return { url: it, blur: false };
+  return { url: it.url, blur: !!it.blur };
+}
+
 let galleryData = { items: [] };
 
 function renderGallery(){
   const box = document.getElementById('cardGallery');
-  const items = galleryData.items || [];
-  const order = items.map((url,i)=>({url,i})).reverse(); // 신규 업로드가 먼저 보이도록
+  const items = (galleryData.items || []).map(normalizeGalleryItem);
+  const order = items.map((it,i)=>({...it,i})).reverse(); // 신규 업로드가 먼저 보이도록
   box.innerHTML = `
     <div class="pin-grid">
-      ${order.map(({url,i})=> `<div class="pin-item" data-idx="${i}"><img src="${escapeHtml(url)}"></div>`).join('')}
+      ${order.map(({url,blur,i})=> `
+        <div class="pin-item ${blur ? 'blurred' : ''}" data-idx="${i}">
+          <img src="${escapeHtml(url)}">
+          ${editMode ? `<button class="pin-blur-btn" data-blur="${i}" title="${blur ? '블러 해제' : '블러 처리'}">${blur ? '🙈' : '👁'}</button>` : ''}
+        </div>
+      `).join('')}
     </div>
     ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
     ${editMode ? `<button class="gallery-add-fab" id="galAddBtn" title="사진 추가">＋</button>` : ''}
   `;
-  box.querySelectorAll('.pin-item').forEach(el=> el.addEventListener('click', ()=> openGalleryViewModal(Number(el.dataset.idx))));
+  box.querySelectorAll('.pin-item').forEach(el=> el.addEventListener('click', (e)=>{
+    if(e.target.closest('[data-blur]')) return;
+    openGalleryViewModal(Number(el.dataset.idx));
+  }));
   box.querySelectorAll('.pin-item img').forEach(attachImgFallback);
+  box.querySelectorAll('[data-blur]').forEach(btn=> btn.addEventListener('click', async (e)=>{
+    e.stopPropagation();
+    const idx = Number(btn.dataset.blur);
+    const arr = items.slice();
+    arr[idx] = { ...arr[idx], blur: !arr[idx].blur };
+    await docRef('gallery').set({ items: arr }, {merge:true});
+  }));
   const addBtn = box.querySelector('#galAddBtn');
   if(addBtn) addBtn.onclick = openGalleryAddModal;
 }
 
 function openGalleryViewModal(idx){
-  const url = galleryData.items[idx];
+  const items = (galleryData.items || []).map(normalizeGalleryItem);
+  const url = items[idx].url;
   openImageLightbox(url, editMode ? async ()=>{
-    const arr = [...galleryData.items]; arr.splice(idx,1);
+    const arr = items.slice(); arr.splice(idx,1);
     await docRef('gallery').set({items:arr}, {merge:true});
   } : null);
 }
@@ -1074,6 +1097,10 @@ function openGalleryAddModal(){
     <p class="hint">화면에 맞게 자동으로 압축해서 갤러리에 바로 추가돼요. 별도 사이트에 올릴 필요 없어요.</p>
     <label>또는, 이미지 URL 직접 입력</label>
     <input type="url" id="galUrl" placeholder="https://...">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;">
+      <input type="checkbox" id="galBlur" style="width:auto;">
+      <span style="font-size:.82rem;color:var(--ink);">썸네일 블러 처리 (눌러야만 원본이 보여요)</span>
+    </label>
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
   `, m=>{
     m.querySelector('#c').onclick = closeModal;
@@ -1081,22 +1108,24 @@ function openGalleryAddModal(){
       const saveBtn = m.querySelector('#s');
       const files = Array.from(m.querySelector('#galFiles').files || []);
       const url = normalizeImageUrl(m.querySelector('#galUrl').value.trim());
+      const blur = m.querySelector('#galBlur').checked;
       const newItems = [];
       if(files.length){
         saveBtn.disabled = true;
         for(let i=0;i<files.length;i++){
           saveBtn.textContent = `처리 중… (${i+1}/${files.length})`;
-          try{ newItems.push(await compressImageFile(files[i], 1200, 260000)); }
+          try{ newItems.push({ url: await compressImageFile(files[i], 1200, 260000), blur }); }
           catch(err){ toast(`"${files[i].name}" 처리 실패`); }
         }
       } else if(url){
-        newItems.push(url);
+        newItems.push({ url, blur });
       } else {
         toast('사진을 선택하거나 URL을 입력해주세요');
         return;
       }
       try{
-        await docRef('gallery').set({ items: [...(galleryData.items||[]), ...newItems] }, {merge:true});
+        const existing = (galleryData.items||[]).map(normalizeGalleryItem);
+        await docRef('gallery').set({ items: [...existing, ...newItems] }, {merge:true});
       }catch(err){
         toast('저장하지 못했어요. 용량이 크면 URL 방식을 이용해주세요.');
         saveBtn.disabled = false; saveBtn.textContent = '추가';
@@ -1108,6 +1137,101 @@ function openGalleryAddModal(){
 }
 
 docRef('gallery').onSnapshot(doc=>{ galleryData = doc.exists ? doc.data() : {items:[]}; renderGallery(); });
+
+/* ---------------- 6-2. 갤러리 2번째 (기존 갤러리 바로 아래 — 완전히 독립된 두 번째 갤러리) ---------------- */
+
+let gallery2Data = { items: [] };
+
+function renderGallery2(){
+  const box = document.getElementById('cardGallery2');
+  if(!box) return;
+  const items = (gallery2Data.items || []).map(normalizeGalleryItem);
+  const order = items.map((it,i)=>({...it,i})).reverse();
+  box.innerHTML = `
+    <div class="pin-grid">
+      ${order.map(({url,blur,i})=> `
+        <div class="pin-item ${blur ? 'blurred' : ''}" data-idx="${i}">
+          <img src="${escapeHtml(url)}">
+          ${editMode ? `<button class="pin-blur-btn" data-blur="${i}" title="${blur ? '블러 해제' : '블러 처리'}">${blur ? '🙈' : '👁'}</button>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
+    ${editMode ? `<button class="gallery-add-fab" id="galAddBtn2" title="사진 추가">＋</button>` : ''}
+  `;
+  box.querySelectorAll('.pin-item').forEach(el=> el.addEventListener('click', (e)=>{
+    if(e.target.closest('[data-blur]')) return;
+    openGallery2ViewModal(Number(el.dataset.idx));
+  }));
+  box.querySelectorAll('.pin-item img').forEach(attachImgFallback);
+  box.querySelectorAll('[data-blur]').forEach(btn=> btn.addEventListener('click', async (e)=>{
+    e.stopPropagation();
+    const idx = Number(btn.dataset.blur);
+    const arr = items.slice();
+    arr[idx] = { ...arr[idx], blur: !arr[idx].blur };
+    await docRef('gallery2').set({ items: arr }, {merge:true});
+  }));
+  const addBtn = box.querySelector('#galAddBtn2');
+  if(addBtn) addBtn.onclick = openGallery2AddModal;
+}
+
+function openGallery2ViewModal(idx){
+  const items = (gallery2Data.items || []).map(normalizeGalleryItem);
+  const url = items[idx].url;
+  openImageLightbox(url, editMode ? async ()=>{
+    const arr = items.slice(); arr.splice(idx,1);
+    await docRef('gallery2').set({items:arr}, {merge:true});
+  } : null);
+}
+
+function openGallery2AddModal(){
+  openModal(`
+    <h3>사진 추가</h3>
+    <label>사진 올리기 (기기에서 여러 장 선택 가능)</label>
+    <input type="file" id="gal2Files" accept="image/*" multiple>
+    <p class="hint">화면에 맞게 자동으로 압축해서 갤러리에 바로 추가돼요. 별도 사이트에 올릴 필요 없어요.</p>
+    <label>또는, 이미지 URL 직접 입력</label>
+    <input type="url" id="gal2Url" placeholder="https://...">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;">
+      <input type="checkbox" id="gal2Blur" style="width:auto;">
+      <span style="font-size:.82rem;color:var(--ink);">썸네일 블러 처리 (눌러야만 원본이 보여요)</span>
+    </label>
+    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
+  `, m=>{
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#s').onclick = async ()=>{
+      const saveBtn = m.querySelector('#s');
+      const files = Array.from(m.querySelector('#gal2Files').files || []);
+      const url = normalizeImageUrl(m.querySelector('#gal2Url').value.trim());
+      const blur = m.querySelector('#gal2Blur').checked;
+      const newItems = [];
+      if(files.length){
+        saveBtn.disabled = true;
+        for(let i=0;i<files.length;i++){
+          saveBtn.textContent = `처리 중… (${i+1}/${files.length})`;
+          try{ newItems.push({ url: await compressImageFile(files[i], 1200, 260000), blur }); }
+          catch(err){ toast(`"${files[i].name}" 처리 실패`); }
+        }
+      } else if(url){
+        newItems.push({ url, blur });
+      } else {
+        toast('사진을 선택하거나 URL을 입력해주세요');
+        return;
+      }
+      try{
+        const existing = (gallery2Data.items||[]).map(normalizeGalleryItem);
+        await docRef('gallery2').set({ items: [...existing, ...newItems] }, {merge:true});
+      }catch(err){
+        toast('저장하지 못했어요. 용량이 크면 URL 방식을 이용해주세요.');
+        saveBtn.disabled = false; saveBtn.textContent = '추가';
+        return;
+      }
+      closeModal();
+    };
+  });
+}
+
+docRef('gallery2').onSnapshot(doc=>{ gallery2Data = doc.exists ? doc.data() : {items:[]}; renderGallery2(); });
 
 /* ---------------- 6-1. 문서 정리 (갤러리와 세션카드 사이) ---------------- */
 

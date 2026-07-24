@@ -260,10 +260,10 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 .music-add{ align-self:flex-start; }
 
 /* ---------- 디데이 (여백 없이 크게 — 레퍼런스처럼 굵은 타이포그래피 위주) ---------- */
-.w-dday .w-body{ flex:1; min-height:0; }
+.w-dday .w-body{ flex:1; min-height:0; container-type: inline-size; }
 .dday-item{
   position: relative;
-  padding: 10px 30px 10px 0;
+  padding: 10px 34px 10px 0;
   border-bottom: 1px solid var(--card-border);
 }
 .dday-item:first-child{ padding-top:0; }
@@ -273,8 +273,8 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
   color: var(--ink-soft); margin-bottom:1px;
 }
 .dday-count{
-  font-family: var(--font-display); font-weight:800; letter-spacing:-0.01em;
-  font-size: 2.15rem; line-height:1.05; color: var(--rose);
+  font-family: var(--font-display); font-weight:800; letter-spacing:-0.02em;
+  font-size: clamp(2.6rem, 24cqw, 6.5rem); line-height:0.95; color: var(--rose);
 }
 .dday-item .icon-btn{
   position:absolute; top:9px; right:0; width:22px; height:22px; font-size:.6rem;
@@ -333,8 +333,23 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
   break-inside: avoid; margin-bottom:12px; border-radius:18px; overflow:hidden; cursor:pointer;
   border:1px solid var(--card-border); position:relative;
 }
-.pin-item img{ width:100%; display:block; transition: transform .2s ease; }
+.pin-item img{ width:100%; display:block; transition: transform .2s ease, filter .2s ease; }
 .pin-item:hover img{ transform: scale(1.03); }
+.pin-item.blurred img{ filter: blur(22px) saturate(1.1); transform: scale(1.12); }
+.pin-item.blurred:hover img{ transform: scale(1.16); }
+.pin-item.blurred::after{
+  content:"👁 눌러서 보기"; position:absolute; inset:0; z-index:1;
+  display:flex; align-items:center; justify-content:center;
+  font-size:.72rem; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.6);
+  background: rgba(0,0,0,0.12); pointer-events:none;
+}
+.pin-blur-btn{
+  position:absolute; top:8px; right:8px; z-index:2;
+  width:28px; height:28px; border-radius:50%; border:1px solid var(--card-border);
+  background: rgba(15,4,6,0.6); backdrop-filter: blur(6px); color:#fff; font-size:.8rem;
+  cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.pin-blur-btn:hover{ background: rgba(15,4,6,0.85); }
 @media (max-width: 900px){ .pin-grid{ column-count:2; } }
 @media (max-width: 600px){ .pin-grid{ column-count:1; } }
 @media (max-width: 600px){ .doc-list{ grid-template-columns: 1fr; } }
