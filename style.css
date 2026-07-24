@@ -149,7 +149,8 @@ body::before{
 }
 .row{ display:grid; gap:20px; }
 .row-1{ grid-template-columns: 2fr 1fr; }
-.row-1-right{ display:grid; grid-template-rows: 1fr 1.3fr; gap:20px; }
+.row-1-right{ display:grid; grid-template-rows: 1.6fr 1fr; gap:20px; }
+.row-1-right > .w-card{ min-height:0; } /* 그리드 트랙 크기대로 카드가 실제로 줄어들 수 있도록 */
 .row-2{ grid-template-columns: 1fr 2fr; }
 .row-4{ grid-template-columns: 2fr 1fr; }
 
@@ -222,7 +223,9 @@ body::before{
 
 /* ---------- 음악 위젯 ---------- */
 .w-music{ gap:6px; }
-.player-tracks{ max-height:64px; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+.player-tracks{ flex:1; min-height:0; overflow-y:auto; display:flex; flex-direction:column; gap:2px; }
+.player-tracks::-webkit-scrollbar{ width:5px; }
+.player-tracks::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius:4px; }
 .player-track{
   display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:10px; cursor:pointer; font-size:.8rem;
 }
@@ -231,14 +234,26 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 .yt-frame iframe{ width:100%; border:0; border-radius:14px; display:block; }
 .music-add{ align-self:flex-start; }
 
-/* ---------- 디데이 ---------- */
-.w-dday .w-body{ max-height:120px; }
+/* ---------- 디데이 (여백 없이 크게 — 레퍼런스처럼 굵은 타이포그래피 위주) ---------- */
+.w-dday .w-body{ flex:1; min-height:0; }
 .dday-item{
-  display:flex; align-items:baseline; justify-content:space-between;
-  border-bottom: 1px solid var(--card-border); padding: 6px 0; font-size:.85rem;
+  position: relative;
+  padding: 10px 30px 10px 0;
+  border-bottom: 1px solid var(--card-border);
 }
-.dday-label{ font-size:.85rem; }
-.dday-count{ font-family: var(--font-display); font-weight:700; letter-spacing:.03em; color: var(--rose); }
+.dday-item:first-child{ padding-top:0; }
+.dday-item:last-child{ border-bottom:none; }
+.dday-label{
+  font-size:.72rem; font-weight:600; letter-spacing:.06em; text-transform:uppercase;
+  color: var(--ink-soft); margin-bottom:1px;
+}
+.dday-count{
+  font-family: var(--font-display); font-weight:800; letter-spacing:-0.01em;
+  font-size: 2.15rem; line-height:1.05; color: var(--rose);
+}
+.dday-item .icon-btn{
+  position:absolute; top:9px; right:0; width:22px; height:22px; font-size:.6rem;
+}
 
 /* ---------- 방명록 ---------- */
 .w-guestbook .w-body{ max-height:220px; margin-bottom:10px; }
@@ -320,19 +335,25 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 }
 .doc-add{ margin-top:10px; align-self:flex-start; }
 
-/* ---------- 세션 카드 (TRPG) ---------- */
-.session-grid{ display:grid; grid-template-columns: repeat(2,1fr); gap:12px; max-height:420px; overflow-y:auto; padding-right:2px; }
+/* ---------- 자료 카드 (썸네일 이미지만 보이고, 누르면 PDF/링크로 연결 — 갤러리처럼) ---------- */
+.session-grid{ display:grid; grid-template-columns: repeat(3,1fr); gap:12px; max-height:420px; overflow-y:auto; padding-right:2px; }
+.session-grid::-webkit-scrollbar{ width:5px; }
+.session-grid::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius:4px; }
 .session-card{
-  border-radius:18px; border:1px solid var(--card-border); background: var(--card-bg2);
-  padding:15px; cursor:pointer; position:relative; transition: background .15s ease;
+  position:relative; border-radius:18px; overflow:hidden; cursor:pointer;
+  border:1px solid var(--card-border); aspect-ratio: 1/1; background: var(--card-bg2);
+  transition: transform .15s ease;
 }
-.session-card:hover{ background: rgba(255,255,255,0.08); }
-.session-card h4{ margin:0 0 4px; font-family:var(--font-display); font-size:.92rem; color:var(--ink); }
-.session-card .meta{ font-size:.72rem; color:var(--ink-soft); }
-.session-card .pdf-badge{ font-size:.68rem; color:var(--rose); margin-top:6px; display:inline-block; }
+.session-card:hover{ transform: scale(1.03); }
+.session-card img{ width:100%; height:100%; object-fit:cover; display:block; }
+.session-noimg{
+  width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+  font-size:1.7rem; color:var(--ink-soft);
+}
 .session-card .del{
-  position:absolute; top:9px; right:9px; width:24px; height:24px; border-radius:50%;
-  border:1px solid var(--card-border); background: rgba(255,255,255,0.08); color:#ff9aa6; font-size:.65rem;
+  position:absolute; top:8px; right:8px; z-index:2; width:24px; height:24px; border-radius:50%;
+  border:1px solid rgba(255,255,255,0.25); background: rgba(20,10,12,0.6); backdrop-filter: blur(8px);
+  color:#ff9aa6; font-size:.65rem;
 }
 .session-add{ margin-top:10px; align-self:flex-start; }
 
@@ -388,6 +409,15 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
 .modal .hint{ font-size:.75rem; color:var(--ink-soft); margin: 4px 0 0; }
 .modal .radio-row{ display:flex; gap:14px; font-size:.82rem; color:var(--ink); margin:8px 0; }
 .modal .radio-row label{ display:flex; align-items:center; gap:6px; }
+
+/* 이미지를 크게 보기 위한 라이트박스 — 일반 입력폼 모달보다 훨씬 넓게 */
+.modal.modal-lightbox{
+  width:auto; max-width:94vw; padding:16px; background: rgba(10,5,6,0.5);
+}
+.modal.modal-lightbox .lightbox-img{
+  display:block; max-width:90vw; max-height:80vh; width:auto; height:auto;
+  border-radius:16px; margin:0 auto; object-fit:contain;
+}
 
 .color-row{ display:flex; align-items:center; gap:8px; }
 .color-row span{ font-size:.78rem; color:var(--ink-soft); }
