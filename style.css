@@ -176,9 +176,12 @@ body::before{
 .row-strip > .w-card.w-docs{ min-height: 420px; }
 .row-strip-right{ display:grid; grid-template-rows: 1.6fr 1fr; gap:20px; }
 .row-strip-right > .w-card{ min-height:0; }
-.row-2{ grid-template-columns: 1fr 2fr; }
+.row-2{ grid-template-columns: 1fr 2fr 240px; }
 .row-4{ grid-template-columns: 2fr 1fr; }
 
+@media (max-width: 1100px){
+  .row-2{ grid-template-columns: 1fr 2fr 190px; }
+}
 @media (max-width: 900px){
   .row-2, .row-4, .row-strip{ grid-template-columns: 1fr; }
 }
@@ -405,6 +408,17 @@ audio{ width:100%; border-radius: 999px; background: var(--card-bg2); accent-col
   position:absolute; right:26px; bottom:26px; width:44px; height:44px; border-radius:50%;
   background: var(--rose-solid); color:#fff; border:none; font-size:1.2rem; box-shadow: var(--shadow); cursor:pointer;
 }
+
+/* ---------- 레퍼런스 갤러리 (캘린더 옆, 블러 옵션 없이 촘촘한 썸네일 전용) ---------- */
+.w-refgallery{ min-height: 340px; padding-bottom: 60px; }
+.ref-gallery-grid{
+  flex:1; min-height:0; overflow-y:auto; padding-right:4px;
+  display:grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap:4px; align-content:start;
+}
+.ref-gallery-grid::-webkit-scrollbar{ width:5px; }
+.ref-gallery-grid::-webkit-scrollbar-thumb{ background: rgba(255,255,255,0.15); border-radius:4px; }
+.w-refgallery .gallery-add-fab{ width:38px; height:38px; font-size:1rem; right:14px; bottom:14px; }
 
 /* ---------- 문서 정리 (갤러리와 세션카드 사이) ---------- */
 .doc-list{ flex:1; min-height:0; display:grid; grid-template-columns: repeat(2,1fr); align-content:start; gap:8px; overflow-y:auto; padding-right:2px; }

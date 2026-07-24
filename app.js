@@ -296,7 +296,7 @@ function refreshLockUI(){
 
 function renderAllModules(){
   renderImages(); renderMusic(); renderDday(); renderGuestbook();
-  renderCalendar(); renderGallery(); renderGallery2(); renderDocs(); renderSessions(); renderChecklist();
+  renderCalendar(); renderGallery(); renderGallery2(); renderRefGallery(); renderDocs(); renderSessions(); renderChecklist();
 }
 
 lockBtn.addEventListener('click', async ()=>{
@@ -1371,6 +1371,120 @@ function openGallery2AddModal(){
 }
 
 docRef('gallery2').onSnapshot(doc=>{ gallery2Data = doc.exists ? doc.data() : {items:[]}; renderGallery2(); });
+
+/* ---------------- 6-3. 레퍼런스 갤러리 (캘린더 옆, 완전히 독립된 세 번째 갤러리)
+   블러 옵션 없이 작고 촘촘한 정사각형 썸네일로만 구성 — 자료 수집/레퍼런스 모음용 ---------------- */
+
+function normalizeRefGalleryItem(it){
+  if(typeof it === 'string') return { url: it };
+  if(it.chunked) return { chunked:true, fileId: it.fileId, chunkTotal: it.chunkTotal };
+  return { url: it.url };
+}
+
+let refGalleryData = { items: [] };
+
+function renderRefGallery(){
+  const box = document.getElementById('cardRefGallery');
+  if(!box) return;
+  const items = (refGalleryData.items || []).map(normalizeRefGalleryItem);
+  box.innerHTML = `
+    <div class="ref-gallery-grid" id="refGalleryGrid">
+      ${items.map((it,i)=>{
+        const resolved = resolveGalleryItemUrl(it, renderRefGallery);
+        if(resolved === null){
+          return `<div class="pin-item-dense pin-loading" data-idx="${i}"><span>...</span></div>`;
+        }
+        return `
+        <div class="pin-item-dense" data-idx="${i}">
+          <img src="${escapeHtml(resolved)}">
+          ${editMode ? `<button class="pin-del-btn" data-del="${i}" title="삭제">✕</button>` : ''}
+        </div>`;
+      }).join('')}
+      ${items.length===0 ? `<div class="w-empty">아직 사진이 없어요</div>` : ''}
+    </div>
+    ${editMode ? `<button class="gallery-add-fab" id="refGalAddBtn" title="사진 추가">＋</button>` : ''}
+  `;
+  box.querySelectorAll('.pin-item-dense:not(.pin-loading)').forEach(el=> el.addEventListener('click', (e)=>{
+    if(e.target.closest('[data-del]')) return;
+    openRefGalleryViewModal(Number(el.dataset.idx));
+  }));
+  box.querySelectorAll('.pin-item-dense img').forEach(attachImgFallback);
+  box.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async (e)=>{
+    e.stopPropagation();
+    const idx = Number(btn.dataset.del);
+    const arr = items.slice();
+    const [removed] = arr.splice(idx,1);
+    await docRef('refgallery').set({items:arr}, {merge:true});
+    deleteGalleryImageIfChunked(removed);
+  }));
+  const addBtn = box.querySelector('#refGalAddBtn');
+  if(addBtn) addBtn.onclick = openRefGalleryAddModal;
+  bindPinDragReorder(
+    box.querySelector('#refGalleryGrid'), '.pin-item-dense:not(.pin-loading)',
+    ()=> items.slice(),
+    async (arr)=> docRef('refgallery').set({items:arr}, {merge:true})
+  );
+}
+
+function openRefGalleryViewModal(idx){
+  const items = (refGalleryData.items || []).map(normalizeRefGalleryItem);
+  const item = items[idx];
+  const url = resolveGalleryItemUrl(item, ()=>{});
+  if(!url){ toast('사진을 아직 불러오는 중이에요'); return; }
+  openImageLightbox(url, editMode ? async ()=>{
+    const arr = items.slice();
+    const [removed] = arr.splice(idx,1);
+    await docRef('refgallery').set({items:arr}, {merge:true});
+    deleteGalleryImageIfChunked(removed);
+  } : null);
+}
+
+function openRefGalleryAddModal(){
+  openModal(`
+    <h3>레퍼런스 사진 추가</h3>
+    <label>사진 올리기 (기기에서 여러 장 선택 가능)</label>
+    <input type="file" id="refGalFiles" accept="image/*" multiple>
+    <p class="hint">화면에 맞게 자동으로 압축해서 맨 앞에 추가돼요. 별도 사이트에 올릴 필요 없어요.</p>
+    <label>또는, 이미지 URL 직접 입력</label>
+    <input type="url" id="refGalUrl" placeholder="https://...">
+    <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
+  `, m=>{
+    m.querySelector('#c').onclick = closeModal;
+    m.querySelector('#s').onclick = async ()=>{
+      const saveBtn = m.querySelector('#s');
+      const files = Array.from(m.querySelector('#refGalFiles').files || []);
+      const url = normalizeImageUrl(m.querySelector('#refGalUrl').value.trim());
+      const newItems = [];
+      if(files.length){
+        saveBtn.disabled = true;
+        for(let i=0;i<files.length;i++){
+          saveBtn.textContent = `처리 중… (${i+1}/${files.length})`;
+          try{
+            const dataUrl = await compressImageFile(files[i], 1200, 260000);
+            const stored = await storeGalleryImage(dataUrl);
+            newItems.push(stored);
+          }catch(err){ toast(`"${files[i].name}" 처리 실패`); }
+        }
+      } else if(url){
+        newItems.push({ url });
+      } else {
+        toast('사진을 선택하거나 URL을 입력해주세요');
+        return;
+      }
+      try{
+        const existing = (refGalleryData.items||[]).map(normalizeRefGalleryItem);
+        await docRef('refgallery').set({ items: [...newItems, ...existing] }, {merge:true});
+      }catch(err){
+        toast('저장하지 못했어요. 용량이 크면 URL 방식을 이용해주세요.');
+        saveBtn.disabled = false; saveBtn.textContent = '추가';
+        return;
+      }
+      closeModal();
+    };
+  });
+}
+
+docRef('refgallery').onSnapshot(doc=>{ refGalleryData = doc.exists ? doc.data() : {items:[]}; renderRefGallery(); });
 
 /* ---------------- 6-1. 문서 정리 (갤러리와 세션카드 사이) ---------------- */
 
