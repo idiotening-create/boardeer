@@ -168,6 +168,63 @@ function fileToBase64(file){
   });
 }
 
+/* ---------------- 큰 파일(문서/PDF) 청크 저장 ----------------
+   Firestore는 문서 1개당 1MB 제한이 있어서, 큰 파일은 하나의 문서에
+   통째로 못 넣음. 그래서 base64 문자열을 잘게 잘라 fileChunks 컬렉션에
+   여러 문서로 나눠 저장하고, 카드에는 이 조각들을 다시 찾을 수 있는
+   fileId/chunkTotal만 남겨둠(파이어 스토리지 없이 파이어스토어만으로 해결). */
+const CHUNK_SIZE = 700000; // 조각 하나당 글자 수 (문서 1MB 제한에 여유있게 안전한 크기)
+
+function splitIntoChunks(str, size){
+  const out = [];
+  for(let i=0; i<str.length; i+=size) out.push(str.slice(i, i+size));
+  return out;
+}
+
+async function saveFileChunked(base64DataUrl){
+  const fileId = uid();
+  const chunks = splitIntoChunks(base64DataUrl, CHUNK_SIZE);
+  const batch = db.batch();
+  chunks.forEach((chunk, i)=>{
+    batch.set(db.collection('fileChunks').doc(`${fileId}_${i}`), { fileId, index: i, data: chunk });
+  });
+  await batch.commit();
+  return { fileId, total: chunks.length };
+}
+
+async function loadFileChunked(fileId, total){
+  const snaps = await Promise.all(
+    Array.from({ length: total }, (_, i)=> db.collection('fileChunks').doc(`${fileId}_${i}`).get())
+  );
+  return snaps.map(s=> (s.exists ? s.data().data : '')).join('');
+}
+
+async function deleteFileChunked(fileId, total){
+  const batch = db.batch();
+  for(let i=0; i<total; i++){
+    batch.delete(db.collection('fileChunks').doc(`${fileId}_${i}`));
+  }
+  await batch.commit();
+}
+
+/* base64 데이터 URL을 Blob으로 바꿔서 새 탭에 열어줌.
+   큰 파일을 data: URL 그대로 window.open에 넘기면 브라우저별 주소 길이
+   제한에 걸릴 수 있어서, 실제 파일처럼 동작하는 Blob 주소로 변환해서 씀. */
+function openDataUrlAsBlob(dataUrl){
+  const commaIdx = dataUrl.indexOf(',');
+  const header = dataUrl.slice(0, commaIdx);
+  const base64 = dataUrl.slice(commaIdx + 1);
+  const mimeMatch = header.match(/data:(.*?);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : 'application/octet-stream';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for(let i=0; i<binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(()=> URL.revokeObjectURL(url), 60000);
+}
+
 /* ---------------- 잠금 / 편집모드 ---------------- */
 
 function refreshLockUI(){
@@ -1042,7 +1099,8 @@ docRef('gallery').onSnapshot(doc=>{ galleryData = doc.exists ? doc.data() : {ite
 /* ---------------- 6-1. 문서 정리 (갤러리와 세션카드 사이) ---------------- */
 
 let docsData = { cards: [] };
-const DOC_FILE_MAX_BYTES = 650000;
+const DOC_FILE_MAX_BYTES = 650000; // 이 크기까지는 카드 문서 안에 바로 저장(가장 빠름)
+const DOC_FILE_CHUNKED_MAX_BYTES = 8 * 1024 * 1024; // 이보다 크면 여러 문서로 나눠 저장(파이어스토리지 없이 8MB까지)
 
 function renderDocs(){
   const list = document.getElementById('docList');
@@ -1054,15 +1112,30 @@ function renderDocs(){
         <div class="doc-title">${escapeHtml(c.title)}</div>
         ${c.desc ? `<div class="doc-desc">${escapeHtml(c.desc)}</div>` : ''}
       </div>
-      ${c.link ? `<a class="doc-open" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">열기 ↗</a>` : ''}
+      ${c.chunked ? `<a class="doc-open" href="#" data-open="${i}">열기 ↗</a>` : (c.link ? `<a class="doc-open" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">열기 ↗</a>` : '')}
       ${editMode ? `<button class="doc-del" data-del="${i}">✕</button>` : ''}
     </div>
   `).join('') || `<div class="w-empty">정리된 문서가 없어요</div>`;
 
+  list.querySelectorAll('[data-open]').forEach(a=> a.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    const idx = Number(a.dataset.open);
+    const c = docsData.cards[idx];
+    const original = a.textContent;
+    a.textContent = '불러오는 중…';
+    try{
+      const base64 = await loadFileChunked(c.fileId, c.chunkTotal);
+      openDataUrlAsBlob(base64);
+    }catch(err){ toast('파일을 불러오지 못했어요'); }
+    a.textContent = original;
+  }));
+
   list.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async ()=>{
     const idx = Number(btn.dataset.del);
+    const removed = docsData.cards[idx];
     const arr = [...docsData.cards]; arr.splice(idx,1);
     await docRef('documents').set({cards:arr}, {merge:true});
+    if(removed && removed.chunked) deleteFileChunked(removed.fileId, removed.chunkTotal).catch(()=>{});
   }));
 
   const wrap = document.getElementById('docAddWrap');
@@ -1086,7 +1159,7 @@ function openDocAddModal(){
     </div>
     <div id="dcFileWrap" style="display:none">
       <label>파일 선택</label><input type="file" id="dcFile">
-      <p class="hint">약 ${Math.round(DOC_FILE_MAX_BYTES/1024)}KB보다 큰 파일은 여기서 바로 못 올려요. 그럴 땐 "링크로 연결"을 이용해주세요.</p>
+      <p class="hint">약 ${Math.round(DOC_FILE_CHUNKED_MAX_BYTES/1024/1024)}MB까지 파이어스토리지 없이 바로 올릴 수 있어요. 그보다 크면 "링크로 연결"을 이용해주세요. (용량이 크면 저장/열기에 몇 초 더 걸릴 수 있어요)</p>
     </div>
     <div class="modal-actions"><button class="btn ghost" id="c">취소</button><button class="btn primary" id="s">추가</button></div>
   `, m=>{
@@ -1104,24 +1177,34 @@ function openDocAddModal(){
       if(!title){ toast('제목을 입력해주세요'); return; }
       const isLink = m.querySelector('input[name="doc-src"]:checked').value === 'link';
       let link = '';
+      let chunkInfo = null;
       if(isLink){
         link = m.querySelector('#dcLink').value.trim();
       } else {
         const file = m.querySelector('#dcFile').files[0];
         if(file){
-          if(file.size > DOC_FILE_MAX_BYTES){
-            toast('파일이 너무 커요. "링크로 연결"을 이용해주세요.');
+          if(file.size > DOC_FILE_CHUNKED_MAX_BYTES){
+            toast(`파일이 너무 커요 (최대 ${Math.round(DOC_FILE_CHUNKED_MAX_BYTES/1024/1024)}MB). "링크로 연결"을 이용해주세요.`);
             return;
           }
           saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
-          try{ link = await fileToBase64(file); }
+          let base64;
+          try{ base64 = await fileToBase64(file); }
           catch(err){ toast('파일을 읽지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='추가'; return; }
+          if(file.size > DOC_FILE_MAX_BYTES){
+            try{ chunkInfo = await saveFileChunked(base64); }
+            catch(err){ toast('저장하지 못했어요. 링크 방식을 이용해주세요.'); saveBtn.disabled=false; saveBtn.textContent='추가'; return; }
+          } else {
+            link = base64;
+          }
         }
       }
+      const newCard = { icon, title, desc, link };
+      if(chunkInfo){ newCard.chunked = true; newCard.fileId = chunkInfo.fileId; newCard.chunkTotal = chunkInfo.total; }
       try{
-        await docRef('documents').set({ cards: [...(docsData.cards||[]), {icon, title, desc, link}] }, {merge:true});
+        await docRef('documents').set({ cards: [...(docsData.cards||[]), newCard] }, {merge:true});
       }catch(err){
-        toast('저장하지 못했어요. 파일이 크면 링크 방식을 이용해주세요.');
+        toast('저장하지 못했어요. 링크 방식을 이용해주세요.');
         saveBtn.disabled = false; saveBtn.textContent = '추가';
         return;
       }
@@ -1135,7 +1218,8 @@ docRef('documents').onSnapshot(doc=>{ docsData = doc.exists ? doc.data() : {card
 /* ---------------- 7. 자료 카드 (썸네일 이미지만 보이고, 누르면 PDF/링크로 연결) ---------------- */
 
 let sessionsData = { cards: [] };
-const SESSION_PDF_MAX_BYTES = 650000;
+const SESSION_PDF_MAX_BYTES = 650000; // 이 크기까지는 카드 문서 안에 바로 저장(가장 빠름)
+const SESSION_PDF_CHUNKED_MAX_BYTES = 8 * 1024 * 1024; // 이보다 크면 여러 문서로 나눠 저장(파이어스토리지 없이 8MB까지)
 const SESSION_THUMB_MAX_BYTES = 220000;
 
 function renderSessions(){
@@ -1148,18 +1232,29 @@ function renderSessions(){
     </div>
   `).join('') || `<div class="w-empty" style="grid-column:1/-1">등록된 자료가 없어요</div>`;
 
-  grid.querySelectorAll('.session-card').forEach(el=> el.addEventListener('click', (e)=>{
+  grid.querySelectorAll('.session-card').forEach(el=> el.addEventListener('click', async (e)=>{
     if(e.target.closest('[data-del]')) return;
     const idx = Number(el.dataset.idx);
     const card = sessionsData.cards[idx];
-    if(card.pdf) window.open(card.pdf, '_blank');
-    else toast('연결된 자료가 없어요');
+    if(card.chunked){
+      toast('자료를 불러오는 중…');
+      try{
+        const base64 = await loadFileChunked(card.fileId, card.chunkTotal);
+        openDataUrlAsBlob(base64);
+      }catch(err){ toast('자료를 불러오지 못했어요'); }
+    } else if(card.pdf){
+      window.open(card.pdf, '_blank');
+    } else {
+      toast('연결된 자료가 없어요');
+    }
   }));
   grid.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', async (e)=>{
     e.stopPropagation();
     const idx = Number(btn.dataset.del);
+    const removed = sessionsData.cards[idx];
     const arr = [...sessionsData.cards]; arr.splice(idx,1);
     await docRef('sessions').set({cards:arr}, {merge:true});
+    if(removed && removed.chunked) deleteFileChunked(removed.fileId, removed.chunkTotal).catch(()=>{});
   }));
 
   const wrap = document.getElementById('sessionAddWrap');
@@ -1181,7 +1276,7 @@ function openSessionAddModal(){
     </div>
     <div id="pdfFileWrap">
       <label>PDF 파일</label><input type="file" id="sPdfFile" accept="application/pdf">
-      <p class="hint">파일이 약 ${Math.round(SESSION_PDF_MAX_BYTES/1024)}KB보다 크면 여기서 바로 못 올려요. 그럴 땐 오른쪽 "링크로 연결"을 골라서 구글드라이브 공유 링크를 붙여넣어주세요.</p>
+      <p class="hint">약 ${Math.round(SESSION_PDF_CHUNKED_MAX_BYTES/1024/1024)}MB까지 파이어스토리지 없이 바로 올릴 수 있어요. 그보다 크면 오른쪽 "링크로 연결"을 골라서 구글드라이브 공유 링크를 붙여넣어주세요. (용량이 크면 저장/열기에 몇 초 더 걸릴 수 있어요)</p>
     </div>
     <div id="pdfLinkWrap" style="display:none">
       <label>링크 (구글드라이브 공유 링크 등)</label><input type="url" id="sPdfLink" placeholder="https://drive.google.com/...">
@@ -1201,16 +1296,24 @@ function openSessionAddModal(){
       if(!thumbFile){ toast('썸네일 이미지를 선택해주세요'); return; }
       const isFile = m.querySelector('input[name="pdf-src"]:checked').value === 'file';
       let pdf = '';
+      let pdfChunkInfo = null;
       if(isFile){
         const file = m.querySelector('#sPdfFile').files[0];
         if(!file){ toast('PDF 파일을 선택하거나 "링크로 연결"을 골라주세요'); return; }
-        if(file.size > SESSION_PDF_MAX_BYTES){
-          toast('PDF 용량이 너무 커요. "링크로 연결"을 이용해주세요.');
+        if(file.size > SESSION_PDF_CHUNKED_MAX_BYTES){
+          toast(`PDF 용량이 너무 커요 (최대 ${Math.round(SESSION_PDF_CHUNKED_MAX_BYTES/1024/1024)}MB). "링크로 연결"을 이용해주세요.`);
           return;
         }
         saveBtn.disabled = true; saveBtn.textContent = '처리 중…';
-        try{ pdf = await fileToBase64(file); }
+        let base64;
+        try{ base64 = await fileToBase64(file); }
         catch(err){ toast('PDF를 읽지 못했어요'); saveBtn.disabled=false; saveBtn.textContent='추가'; return; }
+        if(file.size > SESSION_PDF_MAX_BYTES){
+          try{ pdfChunkInfo = await saveFileChunked(base64); }
+          catch(err){ toast('저장하지 못했어요. 링크 방식을 이용해주세요.'); saveBtn.disabled=false; saveBtn.textContent='추가'; return; }
+        } else {
+          pdf = base64;
+        }
       } else {
         pdf = m.querySelector('#sPdfLink').value.trim();
         if(!pdf){ toast('링크를 입력해주세요'); return; }
@@ -1224,8 +1327,10 @@ function openSessionAddModal(){
         saveBtn.disabled = false; saveBtn.textContent = '추가';
         return;
       }
+      const newCard = { title, thumb, pdf };
+      if(pdfChunkInfo){ newCard.chunked = true; newCard.fileId = pdfChunkInfo.fileId; newCard.chunkTotal = pdfChunkInfo.total; }
       try{
-        await docRef('sessions').set({ cards: [...(sessionsData.cards||[]), {title, thumb, pdf}] }, {merge:true});
+        await docRef('sessions').set({ cards: [...(sessionsData.cards||[]), newCard] }, {merge:true});
       }catch(err){
         toast('저장하지 못했어요. PDF 용량이 크면 링크 방식을 이용해주세요.');
         saveBtn.disabled = false; saveBtn.textContent = '추가';
